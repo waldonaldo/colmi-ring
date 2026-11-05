@@ -1,3 +1,16 @@
+# Colmi ring app — waldonaldo fork
+
+Changes in this fork:
+- **R10 support:** finds rings advertising as `R10_xxxx` (and any `Rnn_`), and asks for
+  temperature the way the R10 answers (Gadgetbridge's request, longer waits).
+- **Fitness server link** (Settings → Fitness server): after every sync the last few days of
+  ring data go to a self-hosted Fitness server (`POST /api/ring/ingest`), and the app syncs early
+  when the server asks (`GET /api/ring/sync-request`).
+- **No Mac needed:** GitHub Actions builds an unsigned `ColmiRing.ipa` on every push
+  (Releases → *latest*). Install it with Sideloadly or AltStore using your own Apple ID.
+
+---
+
 # Colmi
 
 An Oura-style iOS app for the **Colmi R02** smart ring, built on a reverse-engineered

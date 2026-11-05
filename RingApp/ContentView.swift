@@ -1030,6 +1030,8 @@ struct SettingsSheet: View {
 
                 BackgroundMonitoringSection(monitor: AppServices.shared.monitor)
 
+                FitnessLinkSection(link: FitnessLink.shared)
+
                 if let capture { OvernightCaptureSection(capture: capture) }
 
                 Section("Health") {

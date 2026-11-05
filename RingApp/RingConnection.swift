@@ -230,6 +230,15 @@ final class RingConnection: NSObject, ObservableObject {
         requestBigData(type.rawValue, payload: payload)
     }
 
+    /// A big-data request sent byte for byte.
+    func requestBigData(raw frame: Data) {
+        guard let p = peripheral, let ch = bigDataWrite else { return }
+        framer.reset()
+        bigDataTypesReceived.removeAll()
+        note("BD \(hex(frame))", outgoing: true)
+        p.writeValue(frame, for: ch, type: .withoutResponse)
+    }
+
     func clearLog() { log.removeAll() }
 
     // MARK: Internals
@@ -294,8 +303,10 @@ extension RingConnection: CBCentralManagerDelegate {
                                     rssi RSSI: NSNumber) {
         // Cheap synchronous filter — the scan is unfiltered, so most of what
         // arrives here is someone else's earbuds.
+        // Colmi rings advertise as R02_xxxx, R06_xxxx, R10_xxxx and so on.
         guard let name = peripheral.name?.uppercased(),
-              name.contains("R02") || name.contains("COLMI") else { return }
+              name.contains("COLMI")
+                || name.range(of: #"^R\d{2}"#, options: .regularExpression) != nil else { return }
 
         Task { @MainActor in
             central.stopScan()

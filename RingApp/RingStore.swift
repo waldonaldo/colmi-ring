@@ -774,11 +774,16 @@ final class RingSync: ObservableObject {
         // temperature arrives as one message per day, and the next request
         // used to cut it off mid-reply.
         for type in BigDataType.allCases {
-            ring.requestBigData(type)
+            // The R10 is slow to answer temperature and sends each day as its
+            // own message with gaps between them, so it gets longer waits.
+            let slow = type == .temperature
+            if slow { ring.requestBigData(raw: BigData.temperatureRead) } else { ring.requestBigData(type) }
             let started = Date()
-            while !Task.isCancelled && ring.isConnected && Date().timeIntervalSince(started) < 8 {
+            let limit: TimeInterval = slow ? 16 : 8
+            let settle: TimeInterval = slow ? 3.5 : 1.2
+            while !Task.isCancelled && ring.isConnected && Date().timeIntervalSince(started) < limit {
                 try? await Task.sleep(for: .milliseconds(200))
-                let quiet = Date().timeIntervalSince(ring.lastBigDataActivity) > 1.2
+                let quiet = Date().timeIntervalSince(ring.lastBigDataActivity) > settle
                 if ring.bigDataTypesReceived.contains(type.rawValue) && quiet { break }
             }
         }
@@ -821,8 +826,11 @@ final class RingSync: ObservableObject {
         }
 
         ring.requestBattery()
+        try? await Task.sleep(for: .milliseconds(600))   // let the battery reply land
         lastSync = Date()
         status = "Updated " + Format.time(Date())
+        await FitnessLink.shared.upload(store: store, battery: ring.battery,
+                                        days: max(1, min(7, backfillDays)))
     }
 
     /// Just today's steps — quick enough to run every few minutes for

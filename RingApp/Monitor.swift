@@ -160,7 +160,10 @@ final class RingMonitor: ObservableObject {
         }
         let deadline = budget.map { Date().addingTimeInterval($0) }
 
-        if sync.isStale(maxAge: Self.syncMaxAge) {
+        // The Fitness server can ask for a sync (Atlas workout check).
+        var requested = false
+        if FitnessLink.shared.shouldPoll { requested = await FitnessLink.shared.syncRequested() }
+        if requested || sync.isStale(maxAge: Self.syncMaxAge) {
             status = "Syncing"
             // A background refresh gets about 30 seconds, so it pulls today only.
             await sync.syncAll(backfillDays: budget == nil ? 7 : 1)
@@ -205,7 +208,8 @@ final class RingMonitor: ObservableObject {
     private func ringActivity() {
         guard !running, Date().timeIntervalSince(lastCheck) > 60 else { return }
         lastCheck = Date()
-        guard !dueNow.isEmpty || sync.isStale(maxAge: Self.syncMaxAge) else { return }
+        guard !dueNow.isEmpty || sync.isStale(maxAge: Self.syncMaxAge)
+                || FitnessLink.shared.shouldPoll else { return }
         Task { await tick() }
     }
 

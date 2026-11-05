@@ -496,6 +496,11 @@ enum BigData {
     static func read(_ type: UInt8) -> Data {
         Data([magic, type, 0x01, 0x00, 0xFF, 0x00, 0xFF])
     }
+
+    /// Temperature history as Gadgetbridge asks for it. Verified on an R10
+    /// (RT03CR, fw 1.00.02): it answers this one, slowly (5–6 s), with one
+    /// message per day — 2 days ago, yesterday, today.
+    static let temperatureRead = Data([magic, 0x25, 0x01, 0x00, 0x3E, 0x81, 0x02])
 }
 
 /// Buffers notifications and walks the framing.
