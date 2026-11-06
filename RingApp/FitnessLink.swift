@@ -180,7 +180,28 @@ final class FitnessLink: ObservableObject {
             device["charging"] = battery.isCharging
         }
         return ["hr": hr, "steps": steps, "stress": series("stress"), "hrv": series("hrv"),
-                "temperature": temperature, "sleep": sleep, "device": device]
+                "temperature": temperature, "sleep": sleep, "device": device,
+                "scores": scores(store: store, days: days)]
+    }
+
+    /// The scores this app shows, so the server and the emailed reports use
+    /// the same numbers instead of working out their own.
+    static func scores(store: RingStore, days: Int) -> [[String: Any]] {
+        let encode = { (score: Score?) -> Any in
+            guard let score else { return NSNull() }
+            return ["score": score.value, "provisional": score.isProvisional,
+                    "contributors": score.inOrder.map {
+                        ["name": $0.name, "score": $0.score, "detail": $0.detail] as [String: Any]
+                    }] as [String: Any]
+        }
+        return dayKeys(endingOn: DayKey.of(Date()), count: max(1, days)).compactMap { key in
+            let readiness = store.readiness(on: key)
+            let sleep = store.sleepScore(on: key)
+            let activity = store.activityScore(on: key)
+            guard readiness != nil || sleep != nil || activity != nil else { return nil }
+            return ["date": key, "readiness": encode(readiness), "sleep": encode(sleep),
+                    "activity": encode(activity)]
+        }
     }
 }
 
