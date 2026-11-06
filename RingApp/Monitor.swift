@@ -174,6 +174,9 @@ final class RingMonitor: ObservableObject {
             await sync.syncTodaySteps()
             notifier.lastStepFetch = Date()
         }
+        // While it's on the charger, ask for the level each check so the
+        // full-charge alert can fire (fork).
+        if ring.battery?.isCharging == true { ring.requestBattery() }
         notifier.refresh()
         for m in dueNow {
             if let deadline, deadline.timeIntervalSinceNow < 60 { break }

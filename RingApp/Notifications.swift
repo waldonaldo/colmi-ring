@@ -14,7 +14,7 @@ import UserNotifications
 final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelegate {
 
     enum Kind: String, CaseIterable, Identifiable {
-        case battery, inactivity, progress, bedtime, insights
+        case battery, inactivity, progress, bedtime, insights, stress, symptoms
 
         var id: String { rawValue }
 
@@ -25,6 +25,8 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
             case .progress:   return "Activity progress"
             case .bedtime:    return "Bedtime"
             case .insights:   return "Insights"
+            case .stress:     return "Stress alerts"
+            case .symptoms:   return "Getting-sick warnings"
             }
         }
 
@@ -34,12 +36,15 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
             case .inactivity: return "After 50 minutes without moving"
             case .progress:   return "An evening nudge toward your step goal, and when you reach it"
             case .bedtime:    return "An hour before your suggested bedtime"
-            case .insights:   return "Monday's weekly summary, and Symptom Radar signs"
+            case .insights:   return "Monday's weekly summary"
+            case .stress:     return "When stress stays high for about an hour (not 11 PM–9 AM)"
+            case .symptoms:   return "Symptom Radar: temperature, resting heart rate and HRV off your baseline"
             }
         }
 
         /// Oura's defaults: battery and inactivity on, the rest off.
-        var defaultOn: Bool { self == .battery || self == .inactivity }
+        /// Fork: stress and getting-sick warnings are on by default too.
+        var defaultOn: Bool { [.battery, .inactivity, .stress, .symptoms].contains(self) }
     }
 
     @Published private(set) var authorized = false
@@ -140,11 +145,13 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
         checkProgress(now: now)
         scheduleWeeklyInsight(now: now)
         checkSymptomRadar(now: now)
+        checkStress(now: now)
     }
 
     // Battery
 
     private func checkBattery(_ battery: BatteryState) {
+        checkFullCharge(battery)
         guard isOn(.battery),
               let fire = NotificationRules.batteryAlert(level: battery.level, isCharging: battery.isCharging,
                                                        bedtime: tonightsBedtime(), now: Date()) else {
@@ -156,6 +163,66 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
                  title: "Charge your ring before bed",
                  body: "It's at \(battery.level)%. Oura needs at least 30% to track a full night's sleep.")
         markSent("battery")
+    }
+
+
+    // Stress (fork) - same rule as the Fitness server: the two newest stress
+    // readings within 90 minutes both at/above 50, at most every 2 hours,
+    // never 11 PM - 9 AM. Runs on the phone, so it works away from home Wi-Fi.
+
+    static let stressThreshold = 50.0
+
+    private func checkStress(now: Date) {
+        guard isOn(.stress) else { return }
+        let hour = Calendar.current.component(.hour, from: now)
+        guard hour >= 9 && hour < 23 else { return }
+        let recent = store.samples(kind: "stress", on: DayKey.of(now))
+            .filter { now.timeIntervalSince($0.time) <= 90 * 60 && $0.time <= now }
+            .suffix(2)
+        guard recent.count == 2, recent.allSatisfy({ $0.value >= Self.stressThreshold }) else { return }
+        let key = "notified.stress.at"
+        let last = UserDefaults.standard.double(forKey: key)
+        guard now.timeIntervalSince1970 - last >= 2 * 3600 else { return }
+        UserDefaults.standard.set(now.timeIntervalSince1970, forKey: key)
+        let values = recent.map { String(Int($0.value)) }.joined(separator: " → ")
+        schedule("stress", at: now.addingTimeInterval(1),
+                 title: "Stress has been high",
+                 body: "Your stress has stayed elevated for about an hour (\(values)). Take 2 minutes to breathe slowly or step away.")
+    }
+
+    // Full charge (fork). Battery readings only arrive when the app talks to
+    // the ring, so this also schedules an estimate from the charging rate that
+    // iOS delivers even if the app is asleep; a real 100% reading replaces it.
+
+    private var chargeStart: (level: Int, at: Date)?
+
+    private func checkFullCharge(_ battery: BatteryState) {
+        let id = "battery.full", flag = "notified.battery.full"
+        guard isOn(.battery) else { center.removePendingNotificationRequests(withIdentifiers: [id]); return }
+        guard battery.isCharging else {
+            chargeStart = nil
+            center.removePendingNotificationRequests(withIdentifiers: [id])
+            if battery.level < 95 { UserDefaults.standard.set(false, forKey: flag) }
+            return
+        }
+        if battery.level < 95 { UserDefaults.standard.set(false, forKey: flag) }
+        if battery.level >= 100 {
+            center.removePendingNotificationRequests(withIdentifiers: [id])
+            guard !UserDefaults.standard.bool(forKey: flag) else { return }
+            UserDefaults.standard.set(true, forKey: flag)
+            schedule(id + ".now", at: Date().addingTimeInterval(1), title: "Ring fully charged",
+                     body: "Your ring is at 100%. Put it back on so it keeps tracking.")
+            return
+        }
+        let now = Date()
+        if chargeStart == nil || battery.level < chargeStart!.level { chargeStart = (battery.level, now) }
+        var perMinute = 1.0   // ~0 to 100% in under 2 hours until the real rate is known
+        if let s = chargeStart, battery.level > s.level, now.timeIntervalSince(s.at) > 120 {
+            perMinute = Double(battery.level - s.level) / (now.timeIntervalSince(s.at) / 60)
+        }
+        let minutes = Double(100 - battery.level) / min(3, max(0.3, perMinute))
+        schedule(id, at: now.addingTimeInterval(minutes * 60), title: "Ring should be fully charged",
+                 body: "It was at \(battery.level)% and charging - it should be full about now. Put it back on.")
     }
 
     // Inactivity
@@ -272,7 +339,7 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
 
     private func checkSymptomRadar(now: Date) {
         let today = DayKey.of(now)
-        guard isOn(.insights), let radar = store.symptomRadar(on: today), radar.level != .none,
+        guard isOn(.symptoms), let radar = store.symptomRadar(on: today), radar.level != .none,
               !sentToday("insight.radar") else { return }
         schedule("insight.radar", at: now.addingTimeInterval(1),
                  title: "Symptom Radar: \(radar.level.rawValue.lowercased())",
