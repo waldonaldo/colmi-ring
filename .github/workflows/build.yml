@@ -26,12 +26,15 @@ jobs:
 
       - name: Build (unsigned)
         run: |
+          set -o pipefail
           xcodebuild -project RingApp.xcodeproj -target RingApp \
             -configuration Release -sdk iphoneos \
             SYMROOT="$PWD/build" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            build | tail -40
-          test -d build/Release-iphoneos/RingApp.app
+            build > build.log 2>&1 || { grep -E "error:" -A4 build.log | head -80; tail -20 build.log; exit 1; }
+          tail -5 build.log
+          # The .app folder can exist even when compiling failed - check the program itself.
+          test -x build/Release-iphoneos/RingApp.app/RingApp
 
       - name: Package .ipa
         run: |
