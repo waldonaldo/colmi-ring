@@ -383,6 +383,7 @@ extension RingConnection: CBPeripheralDelegate {
             guard self.uartWrite != nil, self.state != .connected else { return }
             self.state = .connected
             self.note("ready")
+            Keepalive.touch()
             self.syncTime()
             self.requestBattery()
             self.readAllMonitoring()

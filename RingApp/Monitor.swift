@@ -151,6 +151,7 @@ final class RingMonitor: ObservableObject {
     /// Sync if the last one is old, then run whatever's due — one at a time,
     /// since the ring streams one thing at once.
     func tick(budget: TimeInterval? = nil) async {
+        Keepalive.touch()   // the app is running: push the "app closed" alarm back
         guard !running, ring.isConnected, !capture.isCapturing else { return }
         running = true
         lastCheck = Date()
@@ -216,6 +217,7 @@ final class RingMonitor: ObservableObject {
     // MARK: App lifecycle
 
     func appBecameActive() {
+        Keepalive.touch()
         ring.connectIfNeeded()
         notifier.refresh()
         foregroundLoop?.cancel()
@@ -228,6 +230,7 @@ final class RingMonitor: ObservableObject {
     }
 
     func appEnteredBackground() {
+        Keepalive.touch()
         foregroundLoop?.cancel()
         foregroundLoop = nil
         scheduleRefresh()

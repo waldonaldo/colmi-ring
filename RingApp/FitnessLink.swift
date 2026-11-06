@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import Security
+import UIKit
 import SwiftUI
 
 // MARK: - Fitness server link
@@ -67,15 +68,40 @@ final class FitnessLink: ObservableObject {
     func upload(store: RingStore, battery: BatteryState?, days: Int) async {
         guard isConfigured else { return }
         let payload = Self.payload(store: store, battery: battery, days: days)
-        guard let body = try? JSONSerialization.data(withJSONObject: payload),
-              let req = request("/api/ring/ingest", method: "POST", body: body, timeout: 20) else { return }
+        guard let body = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        await post(body)
+    }
+
+    /// The last upload that didn't get through (no home Wi-Fi, app suspended).
+    /// Sent again the next time the app runs; a newer upload replaces it.
+    private var pendingBody: Data?
+
+    func retryPending() async {
+        guard let body = pendingBody, !posting else { return }
+        await post(body)
+    }
+
+    private var posting = false
+
+    private func post(_ body: Data) async {
+        guard let req = request("/api/ring/ingest", method: "POST", body: body, timeout: 20) else { return }
+        posting = true
+        defer { posting = false }
+        // Ask iOS for time to finish if the app is backgrounded mid-upload.
+        let bg = UIApplication.shared.beginBackgroundTask(withName: "fitness-upload")
+        defer { if bg != .invalid { UIApplication.shared.endBackgroundTask(bg) } }
         do {
-            let (data, resp) = try await URLSession.shared.data(for: req)
+            // A separate task, so the caller being cancelled (the foreground
+            // loop stops when the app goes to the background) can't cancel the
+            // request halfway - that was the "(cancelled)" error.
+            let (data, resp) = try await Task { try await URLSession.shared.data(for: req) }.value
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
             guard (200..<300).contains(code) else {
                 status = code == 401 ? "Server rejected the token" : "Upload failed (HTTP \(code))"
+                if code != 401 { pendingBody = body }
                 return
             }
+            pendingBody = nil
             let now = Date()
             lastUpload = now
             UserDefaults.standard.set(now.timeIntervalSince1970, forKey: "fitness.lastUpload")
@@ -85,7 +111,8 @@ final class FitnessLink: ObservableObject {
             let hr = counts?["hr"] as? Int ?? 0
             status = "Sent \(Format.time(now)) · \(hr) heart-rate points"
         } catch {
-            status = "Can't reach the server (\(error.localizedDescription))"
+            pendingBody = body
+            status = "Not sent yet - will retry (\(error.localizedDescription))"
         }
     }
 
