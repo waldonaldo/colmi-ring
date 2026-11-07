@@ -126,6 +126,46 @@ final class FitnessLink: ObservableObject {
         return json["pending"] as? Bool ?? false
     }
 
+    /// Sends a workout recorded here to the Fitness server, which passes it to
+    /// Atlas: its length and the ring's heart rate prove today's workout task.
+    /// Returns Atlas's message (also remembered per workout).
+    func sendWorkout(_ session: CaptureSession) async -> String {
+        guard isConfigured else { return "Set up the Fitness server in Settings to send workouts to Atlas." }
+        let iso = ISO8601DateFormatter()
+        var body: [String: Any] = [
+            "activity": session.activity ?? "Workout",
+            "start": iso.string(from: session.started),
+            "end": iso.string(from: session.ended),
+            "readings": session.validHeartRates.count,
+        ]
+        if let avg = session.meanHR { body["avg_hr"] = (avg * 10).rounded() / 10 }
+        if let peak = session.maxHR { body["max_hr"] = peak }
+        guard let data = try? JSONSerialization.data(withJSONObject: body),
+              let req = request("/api/ring/workout", method: "POST", body: data, timeout: 30) else {
+            return "Couldn't build the request."
+        }
+        do {
+            let (out, resp) = try await URLSession.shared.data(for: req)
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            let json = (try? JSONSerialization.jsonObject(with: out)) as? [String: Any]
+            let message = (json?["message"] as? String) ?? "Fitness server answered HTTP \(code)"
+            if code == 200 { Self.rememberSent(session, message, ok: json?["ok"] as? Bool ?? false) }
+            return message
+        } catch {
+            return "Can't reach the Fitness server (\(error.localizedDescription)) - try again on home Wi-Fi or Tailscale."
+        }
+    }
+
+    static func sentResult(_ session: CaptureSession) -> (message: String, ok: Bool)? {
+        guard let d = UserDefaults.standard.dictionary(forKey: "atlas.sent." + session.id),
+              let m = d["message"] as? String else { return nil }
+        return (m, d["ok"] as? Bool ?? false)
+    }
+
+    private static func rememberSent(_ session: CaptureSession, _ message: String, ok: Bool) {
+        UserDefaults.standard.set(["message": message, "ok": ok], forKey: "atlas.sent." + session.id)
+    }
+
     /// Checks the URL and token without sending any data.
     func test() async {
         guard isConfigured, let req = request("/api/ring/sync-request", timeout: 8) else {

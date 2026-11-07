@@ -1062,7 +1062,7 @@ struct WorkoutFlow: View {
                     .padding(.top, 36).padding(.bottom, 8)
 
                     if let session {
-                        WorkoutSummary(session: session)
+                        WorkoutSummary(session: session, autoSend: true)
                     } else {
                         Card {
                             Text(capture.status).font(.subheadline)
@@ -1103,9 +1103,12 @@ private struct ZoneBar: View {
 struct WorkoutSummary: View {
     @EnvironmentObject private var store: RingStore
     let session: CaptureSession
+    var autoSend = false
 
     var body: some View {
         VStack(spacing: 14) {
+            AtlasProofCard(session: session, autoSend: autoSend)
+
             Card {
                 HStack {
                     stat("Duration", Format.clock(session.duration))
@@ -1293,5 +1296,57 @@ struct OvernightCaptureSection: View {
         } footer: {
             Text("Streams for \(Int(capture.windowSeconds / 60)) minutes every \(Int((capture.windowSeconds + capture.gapSeconds) / 60)) to collect RR intervals, which the ring doesn't store. Optional — nightly HRV already comes from the ring's own log. Keep the phone nearby and charging.")
         }
+    }
+}
+
+
+/// Sends a recorded workout to Atlas (via the Fitness server) as proof for
+/// today's workout task: the length + the ring's heart rate decide. Sent
+/// automatically when a recording ends; past workouts get a button.
+struct AtlasProofCard: View {
+    let session: CaptureSession
+    var autoSend = false
+    @State private var message: String?
+    @State private var ok = false
+    @State private var sending = false
+
+    var body: some View {
+        Card(title: "Atlas workout proof") {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: ok ? "checkmark.seal.fill" : "paperplane")
+                    .foregroundStyle(ok ? Palette.optimal : .secondary)
+                Text(message ?? (sending ? "Sending to Atlas…" : "Not sent yet."))
+                    .font(.subheadline)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if !ok {
+                Button {
+                    Task { await send() }
+                } label: {
+                    Text(sending ? "Sending…" : (message == nil ? "Send to Atlas" : "Send again"))
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity).frame(height: 40)
+                        .background(Color.white.opacity(0.12), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(sending)
+            }
+        }
+        .task {
+            if let sent = FitnessLink.sentResult(session) {
+                message = sent.message; ok = sent.ok
+            } else if autoSend {
+                await send()
+            }
+        }
+    }
+
+    @MainActor
+    private func send() async {
+        sending = true
+        let m = await FitnessLink.shared.sendWorkout(session)
+        sending = false
+        message = m
+        ok = FitnessLink.sentResult(session)?.ok ?? false
     }
 }
