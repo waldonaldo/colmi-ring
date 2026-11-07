@@ -45,27 +45,43 @@ extension CaptureSession {
 }
 
 enum WorkoutActivity: String, CaseIterable, Identifiable {
-    case walking  = "Walking"
-    case running  = "Running"
-    case cycling  = "Cycling"
-    case strength = "Strength training"
-    case hiit     = "HIIT"
-    case yoga     = "Yoga"
-    case dancing  = "Dancing"
-    case other    = "Other"
+    case treadmill  = "Treadmill"
+    case walking    = "Walking"
+    case running    = "Running"
+    case cycling    = "Cycling"
+    case strength   = "Strength training"
+    case bodyweight = "Bodyweight"        // pushups, sit-ups
+    case core       = "Core & abs"        // ab roller, planks
+    case hiit       = "HIIT"
+    case elliptical = "Elliptical"
+    case stairs     = "Stair stepper"
+    case rowing     = "Rowing"
+    case hiking     = "Hiking"
+    case yardWork   = "Yard work"         // mowing the lawn
+    case yoga       = "Yoga"
+    case dancing    = "Dancing"
+    case other      = "Other"
 
     var id: String { rawValue }
 
     var symbol: String {
         switch self {
-        case .walking:  return "figure.walk"
-        case .running:  return "figure.run"
-        case .cycling:  return "figure.outdoor.cycle"
-        case .strength: return "figure.strengthtraining.traditional"
-        case .hiit:     return "figure.highintensity.intervaltraining"
-        case .yoga:     return "figure.yoga"
-        case .dancing:  return "figure.dance"
-        case .other:    return "figure.mixed.cardio"
+        case .treadmill:  return "figure.walk.treadmill"
+        case .walking:    return "figure.walk"
+        case .running:    return "figure.run"
+        case .cycling:    return "figure.outdoor.cycle"
+        case .strength:   return "figure.strengthtraining.traditional"
+        case .bodyweight: return "figure.strengthtraining.functional"
+        case .core:       return "figure.core.training"
+        case .hiit:       return "figure.highintensity.intervaltraining"
+        case .elliptical: return "figure.elliptical"
+        case .stairs:     return "figure.stair.stepper"
+        case .rowing:     return "figure.indoor.rowing"
+        case .hiking:     return "figure.hiking"
+        case .yardWork:   return "leaf"
+        case .yoga:       return "figure.yoga"
+        case .dancing:    return "figure.dance"
+        case .other:      return "figure.mixed.cardio"
         }
     }
 
@@ -861,7 +877,7 @@ struct WorkoutFlow: View {
     private enum Stage { case setup, running, summary }
 
     @State private var stage = Stage.setup
-    @State private var activity = WorkoutActivity.running
+    @State private var activity = WorkoutActivity.treadmill
     @State private var session: CaptureSession?
     @State private var confirmEnd = false
 
@@ -901,6 +917,7 @@ struct WorkoutFlow: View {
                 .font(.subheadline).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
+            ScrollView {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
                       spacing: 10) {
                 ForEach(WorkoutActivity.allCases) { option in
@@ -921,6 +938,8 @@ struct WorkoutFlow: View {
                     .buttonStyle(.plain)
                 }
             }
+            }
+            .scrollIndicators(.hidden)
 
             if zones == nil {
                 Text("Add your birth year in Settings to see heart rate zones.")
