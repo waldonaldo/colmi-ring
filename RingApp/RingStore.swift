@@ -276,8 +276,10 @@ final class RingStore: ObservableObject {
 
     func activityScore(on dayKey: String) -> Score? {
         guard !isRestMode(on: dayKey), let today = activity(on: dayKey) else { return nil }
+        let goal = activityGoal(on: dayKey)
         return ActivityScore.compute(today: today,
-                                     history: activityDays.filter { $0.dayKey <= dayKey })
+                                     history: activityDays.filter { $0.dayKey <= dayKey },
+                                     stepTarget: goal.steps, calorieTarget: goal.calories)
     }
 
     func metrics(on dayKey: String) -> DailyMetrics? { daily.first { $0.dayKey == dayKey } }

@@ -46,7 +46,7 @@ enum Keepalive {
         if closedAlertOn {
             let fire = outsideQuietHours(now.addingTimeInterval(closedAfter))
             let c = UNMutableNotificationContent()
-            c.title = "Ring app isn't running"
+            c.title = "Naldo Fitness isn't running"
             c.body = "It hasn't run since \(Format.time(now)). If you swiped it away, open it so the ring keeps syncing."
             c.sound = .default
             add(center, closedID, c, at: fire, now: now)
@@ -79,13 +79,13 @@ enum Keepalive {
         let when = expiry.formatted(.dateTime.weekday(.wide).hour().minute())
         let plan: [(String, Date, String)] = [
             (expiryIDs[0], beforeQuietHours(expiry.addingTimeInterval(-24 * 3600)),
-             "The ring app stops opening \(when). Plug the iPhone into the PC and click Start in Sideloadly - your data stays."),
+             "Naldo Fitness stops opening \(when). Plug the iPhone into the PC and click Start in Sideloadly - your data stays."),
             (expiryIDs[1], beforeQuietHours(expiry.addingTimeInterval(-3 * 3600)),
-             "Last call: the ring app expires \(when). Re-sign it in Sideloadly (USB, click Start)."),
+             "Last call: Naldo Fitness expires \(when). Re-sign it in Sideloadly (USB, click Start)."),
         ]
         for (id, fire, body) in plan where fire > now {
             let c = UNMutableNotificationContent()
-            c.title = "Re-sign the ring app"
+            c.title = "Re-sign Naldo Fitness"
             c.body = body
             c.sound = .default
             add(center, id, c, at: fire, now: now)

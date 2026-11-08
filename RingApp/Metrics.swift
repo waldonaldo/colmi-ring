@@ -83,6 +83,9 @@ struct CaptureSession: Codable, Identifiable {
     var kind: Kind? = nil
     var activity: String? = nil     // workouts only
     var feeling: Feeling? = nil     // unguided sessions only
+    /// Logged from automatic activity detection (you confirmed it), not
+    /// recorded live. Never sent to Atlas as workout proof.
+    var detected: Bool? = nil
 
     var resolvedKind: Kind { kind ?? .capture }
     var dayKey: String { DayKey.of(started) }
@@ -648,18 +651,22 @@ enum ActivityScore {
     static let stepGoal = 8_000.0
     static let calorieGoal = 400.0
 
-    static func compute(today: ActivityDay, history: [ActivityDay]) -> Score? {
+    /// `stepTarget` / `calorieTarget` are today's goals: the base goals, or
+    /// lower on a low-readiness day (ActivityGoal).
+    static func compute(today: ActivityDay, history: [ActivityDay],
+                        stepTarget: Double = ActivityScore.stepGoal,
+                        calorieTarget: Double = ActivityScore.calorieGoal) -> Score? {
         guard today.steps > 0 || today.activeCalories > 0 else { return nil }
         var parts: [(Contributor, Double)] = []
 
         parts.append((Contributor(name: "Daily steps",
-                                  score: ramp(today.steps, floor: 1_000, target: stepGoal),
+                                  score: ramp(today.steps, floor: 1_000, target: stepTarget),
                                   detail: today.steps.formatted(.number.precision(.fractionLength(0)))),
                       0.40))
 
         if today.activeCalories > 0 {
             parts.append((Contributor(name: "Active calories",
-                                      score: ramp(today.activeCalories, floor: 50, target: calorieGoal),
+                                      score: ramp(today.activeCalories, floor: 50, target: calorieTarget),
                                       detail: String(format: "%.0f kcal", today.activeCalories)), 0.30))
         }
 

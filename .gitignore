@@ -9,3 +9,6 @@ buildServer.json
 
 # macOS
 .DS_Store
+
+# Rendered icons (rebuild with branding/build_icon.py)
+branding/out/

@@ -275,6 +275,7 @@
 				INFOPLIST_FILE = RingApp/Info.plist;
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Connects to your ring to read health data";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Reads existing health data for comparison";
+				INFOPLIST_KEY_CFBundleDisplayName = "Naldo Fitness";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Writes ring measurements to Health";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -314,6 +315,7 @@
 				INFOPLIST_FILE = RingApp/Info.plist;
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Connects to your ring to read health data";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Reads existing health data for comparison";
+				INFOPLIST_KEY_CFBundleDisplayName = "Naldo Fitness";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Writes ring measurements to Health";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;

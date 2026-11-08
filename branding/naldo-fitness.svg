@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Naldo Fitness">
+  <defs>
+    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#D11F2E"/><stop offset="1" stop-color="#7E0F1C"/>
+    </linearGradient>
+    <radialGradient id="glow"><stop offset="0" stop-color="#D11F2E" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#D11F2E" stop-opacity="0"/></radialGradient>
+  <mask id="gap"><rect width="1024" height="1024" fill="#fff"/><polyline points="120,548 352,548 414,448 492,704 588,268 664,616 708,548 904,548" fill="none" stroke="#000" stroke-width="102" stroke-linecap="round" stroke-linejoin="round"/></mask>
+  </defs>
+  <rect width="1024" height="1024" fill="#0B0B0F"/>
+  <circle cx="512" cy="512" r="420" fill="url(#glow)"/>
+<circle cx="512" cy="512" r="300" fill="none" stroke="url(#ring)" stroke-width="84" mask="url(#gap)"/>
+  <polyline points="120,548 352,548 414,448 492,704 588,268 664,616 708,548 904,548" fill="none" stroke="#F4F4F6" stroke-width="50" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

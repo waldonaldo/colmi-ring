@@ -40,7 +40,9 @@ extension CaptureSession.Kind {
 extension CaptureSession {
     var title: String { activity ?? resolvedKind.title }
     var symbol: String {
-        activity.map(WorkoutActivity.symbol(for:)) ?? resolvedKind.symbol
+        // Guided breathing sessions carry a name too (e.g. "Box breathing").
+        guard resolvedKind == .workout else { return resolvedKind.symbol }
+        return activity.map(WorkoutActivity.symbol(for:)) ?? resolvedKind.symbol
     }
 }
 
@@ -1009,17 +1011,9 @@ struct WorkoutFlow: View {
                         .contentTransition(.numericText())
                     Text("bpm").font(.title3).foregroundStyle(.secondary)
                 }
-                if let zones, let bpm = capture.liveHeartRate {
-                    let zone = zones.zone(Double(bpm))
-                    Text(zone == 0 ? "Below zone 1" : "Zone \(zone) · \(HeartZones.names[zone - 1])")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(HeartZones.color(zone))
-                }
             }
 
-            if let zones, let bpm = capture.liveHeartRate {
-                ZoneBar(zone: zones.zone(Double(bpm)))
-            }
+            LiveZoneBar(bpm: capture.liveHeartRate, zones: zones)
 
             if capture.liveHeartRates.count >= 2 {
                 Chart(Array(capture.liveHeartRates.suffix(240).enumerated()), id: \.offset) { i, bpm in
@@ -1084,22 +1078,6 @@ struct WorkoutFlow: View {
     }
 }
 
-/// Five segments with the current zone lit.
-private struct ZoneBar: View {
-    let zone: Int
-
-    var body: some View {
-        HStack(spacing: 4) {
-            ForEach(1...5, id: \.self) { z in
-                Capsule()
-                    .fill(HeartZones.color(z).opacity(z == zone ? 1 : 0.2))
-                    .frame(height: z == zone ? 10 : 6)
-            }
-        }
-        .animation(.snappy, value: zone)
-    }
-}
-
 struct WorkoutSummary: View {
     @EnvironmentObject private var store: RingStore
     let session: CaptureSession
@@ -1107,7 +1085,16 @@ struct WorkoutSummary: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            AtlasProofCard(session: session, autoSend: autoSend)
+            if session.detected == true {
+                // Logged from automatic detection: never Atlas proof.
+                Card {
+                    Label("Auto-detected from your ring's steps and logged by you. Not sent to Atlas.",
+                          systemImage: "figure.walk.motion")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            } else {
+                AtlasProofCard(session: session, autoSend: autoSend)
+            }
 
             Card {
                 HStack {

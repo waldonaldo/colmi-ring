@@ -13,6 +13,7 @@ struct WorkoutScreen: View {
     var onClose: () -> Void = {}
 
     @EnvironmentObject private var ring: RingConnection
+    @EnvironmentObject private var store: RingStore
     @Environment(\.dismiss) private var dismiss
 
     @State private var state: WorkoutState?
@@ -120,6 +121,7 @@ struct WorkoutScreen: View {
 
     private var liveCard: some View {
         TimelineView(.periodic(from: .now, by: 1)) { _ in
+          VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline, spacing: 18) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("HEART RATE").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
@@ -140,6 +142,8 @@ struct WorkoutScreen: View {
                         .font(.caption2).foregroundStyle(.secondary)
                 }
             }
+            LiveZoneBar(bpm: capture?.liveHeartRate, zones: HeartZones(age: store.age))
+          }
             .padding(16)
             .background(Palette.card, in: RoundedRectangle(cornerRadius: 20))
             .overlay(RoundedRectangle(cornerRadius: 20).stroke(Palette.hairline, lineWidth: 1))

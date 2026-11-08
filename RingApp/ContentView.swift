@@ -82,6 +82,7 @@ struct TodayTab: View {
     @State private var showShortcutEditor = false
     @State private var showSession = false
     @State private var showWorkout = false
+    @State private var showBreathing = false
 
     private var greeting: String {
         switch Calendar.current.component(.hour, from: Date()) {
@@ -100,6 +101,7 @@ struct TodayTab: View {
                     RestModeCard()
                     hero
                     if let capture { HeartRateCard(capture: capture, day: $day) }
+                    ActivityDetectionCard()
                     TimelineCard(day: $day)
                     ringCard
                 }
@@ -123,6 +125,9 @@ struct TodayTab: View {
             .fullScreenCover(isPresented: $showWorkout) {
                 if let capture { WorkoutFlow(capture: capture) }
             }
+            .fullScreenCover(isPresented: $showBreathing) {
+                if let capture { BreathingFlow(capture: capture) }
+            }
             .sheet(isPresented: $showShortcutEditor) {
                 ShortcutEditor(selection: Binding(
                     get: { Shortcut.decode(shortcutsRaw) },
@@ -136,6 +141,9 @@ struct TodayTab: View {
         Menu {
             Button { showSession = true } label: {
                 Label("Unguided session", systemImage: "figure.mind.and.body")
+            }
+            Button { showBreathing = true } label: {
+                Label("Guided breathing", systemImage: "wind")
             }
             Button { showTags = true } label: {
                 Label("Add a tag", systemImage: "tag")
@@ -248,32 +256,7 @@ struct TodayTab: View {
                 }
             }
         } else if let readiness = store.readiness(on: day) {
-            Card {
-                VStack(spacing: 14) {
-                    ScoreGauge(score: readiness.value, label: "Readiness",
-                               accent: Section2.readiness.accent)
-                        .frame(maxWidth: .infinity)
-                    Text(readiness.band.rawValue)
-                        .font(.title3.weight(.medium))
-                        .foregroundStyle(Palette.color(readiness.band))
-                    if readiness.isProvisional {
-                        Text("Still learning your baseline — scores settle after about two weeks.")
-                            .font(.caption).foregroundStyle(.tertiary)
-                            .multilineTextAlignment(.center)
-                    }
-                    if let weakest = readiness.contributors.first {
-                        Divider().overlay(Palette.hairline)
-                        HStack {
-                            Text("Lowest contributor").font(.caption).foregroundStyle(.secondary)
-                            Spacer()
-                            Text(weakest.name).font(.caption.weight(.medium))
-                            Text("\(weakest.score)")
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(Palette.color(weakest.band))
-                        }
-                    }
-                }
-            }
+            ReadinessHero(readiness: readiness)     // photo hero (Atlas #101)
         } else if DayKey.isToday(day), !store.nights.isEmpty {
             // As in Oura: today's scores come from tonight's sleep, so between
             // midnight and the morning sync there's nothing to score yet.
@@ -827,6 +810,8 @@ struct ActivityDetail: View {
                         Spacer(minLength: 0)
                     }
                 }
+
+                ActivityGoalCard(day: activityDay)
 
                 if store.weight == nil {
                     Card {
