@@ -48,7 +48,7 @@ final class FitnessLink: ObservableObject {
         return url
     }
 
-    private func request(_ path: String, method: String = "GET", body: Data? = nil,
+    func request(_ path: String, method: String = "GET", body: Data? = nil,
                          timeout: TimeInterval = 10) -> URLRequest? {
         guard let url = endpoint(path) else { return nil }
         var r = URLRequest(url: url, timeoutInterval: timeout)

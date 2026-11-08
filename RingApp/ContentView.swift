@@ -37,6 +37,8 @@ struct RootView: View {
                 .tabItem { Label("Vitals", systemImage: "leaf") }
             MyHealthTab()
                 .tabItem { Label("My Health", systemImage: "tree") }
+            FitnessTab(capture: capture)
+                .tabItem { Label("Fitness", systemImage: "figure.strengthtraining.traditional") }
             DebugTab(capture: capture)
                 .tabItem { Label("Debug", systemImage: "terminal") }
         }
