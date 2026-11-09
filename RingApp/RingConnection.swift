@@ -34,6 +34,9 @@ final class RingConnection: NSObject, ObservableObject {
     @Published private(set) var log: [LogLine] = []
     /// What the ring is currently logging on its own, keyed by kind.
     @Published private(set) var monitoring: [String: MonitoringSetting] = [:]
+    /// Signal strength in dBm from the last readRSSI() (Find my ring).
+    @Published private(set) var rssi: Int?
+    @Published private(set) var rssiAt: Date?
 
     var onRealtimeSample: ((RealtimeSample) -> Void)?
     var onBigDataMessage: ((UInt8, [UInt8]) -> Void)?
@@ -207,6 +210,18 @@ final class RingConnection: NSObject, ObservableObject {
         }
     }
 
+    /// Ask iOS for the current signal strength; the answer lands in `rssi`.
+    func readRSSI() {
+        guard let p = peripheral, p.state == .connected else { return }
+        p.readRSSI()
+    }
+
+    /// Makes the ring flash so it can be found (same command Gadgetbridge
+    /// sends for "Find device").
+    func findDevice() {
+        send(.findDevice, payload: [0x55, 0xAA])
+    }
+
     func startRealtime(_ s: RealtimeSubtype) {
         send(.realtimeStart, payload: [s.rawValue, RealtimeAction.start.rawValue])
     }
@@ -358,6 +373,17 @@ extension RingConnection: CBCentralManagerDelegate {
 // MARK: - CBPeripheralDelegate
 
 extension RingConnection: CBPeripheralDelegate {
+
+    nonisolated func peripheral(_ peripheral: CBPeripheral, didReadRSSI RSSI: NSNumber, error: Error?) {
+        guard error == nil else { return }
+        let value = RSSI.intValue
+        Task { @MainActor in
+            // 127 means "not available".
+            guard value != 127 else { return }
+            self.rssi = value
+            self.rssiAt = Date()
+        }
+    }
 
     nonisolated func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
         for service in peripheral.services ?? [] {

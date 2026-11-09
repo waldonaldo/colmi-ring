@@ -24,6 +24,7 @@ enum UARTCommand: UInt8 {
     case stressHistory    = 0x37
     case hrvHistory       = 0x39
     case steps            = 0x43
+    case findDevice       = 0x50   // payload 55 AA: ring flashes (Gadgetbridge onFindDevice)
     case realtimeStart    = 0x69
     case realtimeStop     = 0x6A
     case statusPush       = 0x73

@@ -83,6 +83,7 @@ struct TodayTab: View {
     @State private var showSession = false
     @State private var showWorkout = false
     @State private var showBreathing = false
+    @State private var showFindRing = false
 
     private var greeting: String {
         switch Calendar.current.component(.hour, from: Date()) {
@@ -119,6 +120,7 @@ struct TodayTab: View {
             .refreshable { await sync?.syncAll() }
             .sheet(isPresented: $showTags) { TagSheet(day: day) }
             .sheet(isPresented: $showSettings) { SettingsSheet(capture: capture) }
+            .sheet(isPresented: $showFindRing) { FindRingSheet(capture: capture) }
             .fullScreenCover(isPresented: $showSession) {
                 if let capture { UnguidedSessionFlow(capture: capture) }
             }
@@ -316,6 +318,13 @@ struct TodayTab: View {
                         .disabled(!ring.isConnected || sync.isSyncing)
                 }
             }
+            Button { showFindRing = true } label: {
+                Label("Find my ring", systemImage: "dot.radiowaves.left.and.right")
+                    .font(.subheadline.weight(.medium))
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .padding(.top, 4)
         }
     }
 }
