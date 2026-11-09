@@ -88,7 +88,7 @@ struct FindRingSheet: View {
     private var tips: some View {
         VStack(spacing: 4) {
             Text(isRunning
-                 ? "The ring is flashing and its green light is on. Turn the lights off to spot it. Stops after 3 minutes."
+                 ? "The ring's light switches between green and red every 15 seconds. Turn the room lights off to spot it. Stops after 3 minutes."
                  : "Stopped.")
             Text("More bars = closer. Walk slowly and pause a second between steps.")
         }
@@ -134,20 +134,23 @@ struct FindRingSheet: View {
         readings = []
         trend = .steady
         task = Task { @MainActor in
-            var sensorOn = false
+            var sensor: RealtimeSubtype?
             while !Task.isCancelled && seconds < Self.maxSeconds {
                 if ring.isConnected {
                     ring.readRSSI()
                     if seconds % 3 == 0 { ring.findDevice() }
-                    // (Re)start the green light every 30 s: off a finger the
-                    // ring may give up on its own.
-                    if !sensorOn || seconds % 30 == 0 {
-                        ring.startRealtime(.heartRate); sensorOn = true
+                    // Swap the sensor light every 15 s: heart rate = green,
+                    // blood oxygen = red. Restarting also keeps it going when
+                    // the ring would give up off a finger.
+                    let want: RealtimeSubtype = (seconds / 15) % 2 == 0 ? .heartRate : .spo2
+                    if sensor != want {
+                        if let sensor { ring.stopRealtime(sensor) }
+                        ring.startRealtime(want); sensor = want
                     } else if seconds % 10 == 0 {
-                        ring.keepRealtimeAlive(.heartRate)
+                        ring.keepRealtimeAlive(want)
                     }
                 } else {
-                    sensorOn = false
+                    sensor = nil
                     if seconds % 5 == 0 { ring.connectIfNeeded() }
                 }
                 try? await Task.sleep(for: .seconds(1))
@@ -180,6 +183,6 @@ struct FindRingSheet: View {
 
     private func finish() {
         task = nil
-        if ring.isConnected { ring.stopRealtime(.heartRate) }
+        if ring.isConnected { ring.stopRealtime(.heartRate); ring.stopRealtime(.spo2) }
     }
 }

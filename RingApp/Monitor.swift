@@ -107,6 +107,11 @@ final class RingMonitor: ObservableObject {
     private let notifier: Notifier
     private var running = false
     private var lastCheck = Date.distantPast
+    /// When a live reading last came back empty (ring off the finger). The
+    /// sensor light stays on for the whole attempt, so a ring lying on a
+    /// table blinks red/green every hour; pause live readings for a while.
+    private var lastEmpty: Date?
+    static let notWornPause: TimeInterval = 2 * 60 * 60
     private var foregroundLoop: Task<Void, Never>?
 
     init(ring: RingConnection, store: RingStore, sync: RingSync, capture: RingCapture, notifier: Notifier) {
@@ -178,33 +183,45 @@ final class RingMonitor: ObservableObject {
         // full-charge alert can fire (fork).
         if ring.battery?.isCharging == true { ring.requestBattery() }
         notifier.refresh()
+        if let lastEmpty, Date().timeIntervalSince(lastEmpty) < Self.notWornPause {
+            status = "Ring looks off your finger · live readings paused until \(Format.time(lastEmpty.addingTimeInterval(Self.notWornPause)))"
+            return
+        }
         for m in dueNow {
             if let deadline, deadline.timeIntervalSinceNow < 60 { break }
             guard ring.isConnected, !capture.isCapturing, !Task.isCancelled else { break }
-            await run(m)
+            if !(await run(m)) { break }    // no reading: don't light the sensor again now
         }
         notifier.refresh()
         status = "Up to date · \(Format.time(Date()))"
     }
 
-    private func run(_ m: Measurement) async {
+    /// Returns false when the ring gave no reading (most likely not worn).
+    @discardableResult
+    private func run(_ m: Measurement) async -> Bool {
         status = "Measuring \(m.title.lowercased())"
+        var got = false
         switch m {
         case .heart:
-            _ = await capture.record(.capture, duration: 90, subtype: .healthCheck)
+            let session = await capture.record(.capture, duration: 90, subtype: .healthCheck)
+            got = session?.settledHR != nil
         case .spo2:
             if let value = await capture.measure(.spo2) {
                 store.merge(spo2: [SpO2Reading(time: Date(), low: value, high: value)])
+                got = true
             }
         case .stress:
             if let value = await capture.measure(.stressHRV) {
                 store.merge(samples: [SeriesSample(kind: "stress", time: Date(), value: Double(value))])
+                got = true
             }
         }
+        lastEmpty = got ? nil : Date()
         // Counted as run even without a reading, so a ring off the finger
         // isn't asked again every minute.
         lastRun[m] = Date()
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "monitor.\(m.rawValue).last")
+        return got
     }
 
     /// Any packet from the ring is a brief chance to run in the background.
