@@ -92,10 +92,11 @@ struct ExerciseHowTo: View {
     private var hasPictures: Bool { ex.gifPath != nil || !(ex.images ?? []).isEmpty }
 
     private var videoLink: (url: URL, title: String)? {
-        if let s = ex.videoUrl, let u = URL(string: s) { return (u, "Watch video") }
+        if let s = ex.videoUrl, let u = URL(string: s) { return (url: u, title: "Watch video") }
         var c = URLComponents(string: "https://www.youtube.com/results")
         c?.queryItems = [URLQueryItem(name: "search_query", value: "\(ex.exerciseName) exercise proper form")]
-        return c?.url.map { ($0, "Find a video") }
+        guard let u = c?.url else { return nil }
+        return (url: u, title: "Find a video")
     }
 
     var body: some View {
@@ -167,7 +168,7 @@ struct ExerciseHowTo: View {
                         Text(i < Self.frameLabels.count ? Self.frameLabels[i] : "\(i + 1)")
                             .font(.caption2.weight(.semibold))
                             .padding(.horizontal, 8).padding(.vertical, 3)
-                            .foregroundStyle(i == frame ? .black : .white)
+                            .foregroundStyle(i == frame ? Color.black : Color.white)
                             .background(i == frame ? Palette.optimal : Color.black.opacity(0.5), in: Capsule())
                     }
                     Spacer()
