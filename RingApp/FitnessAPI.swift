@@ -143,6 +143,17 @@ struct WorkoutExercise: Decodable, Identifiable {
     let targetDurationSec: Int?
     let restSeconds: Int?
     let notes: String?
+    // How-to (Fitness 2026-11-10). All optional so older servers still decode.
+    let gifPath: String?
+    let images: [String]?          // "/media/<id>/lib-0.jpg" start, end photos
+    let videoUrl: String?
+    let videoPath: String?
+    let exerciseInstructions: [String]?
+    let tips: [String]?
+    let description: String?
+    let mediaCredit: String?
+    let primaryMuscles: [String]?
+    let equipment: [String]?
 
     /// Logged by time (planks, treadmill) rather than reps.
     var isTimed: Bool {

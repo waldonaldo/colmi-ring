@@ -27,6 +27,7 @@ struct WorkoutScreen: View {
     @State private var confirmFinish = false
     @State private var confirmClose = false
     @State private var started = Date()
+    @State private var howToOpen: [Int: Bool] = [:]   // workout_exercise id -> expanded
 
     private let link = FitnessLink.shared
     private let accent = Section2.activity.accent
@@ -183,10 +184,28 @@ struct WorkoutScreen: View {
                 if let w = ex.targetWeight { Text("\(Self.num(w)) lb").font(.caption).foregroundStyle(.secondary) }
             }
             if let n = ex.notes, !n.isEmpty { Text(n).font(.caption).foregroundStyle(.secondary) }
+            DisclosureGroup(isExpanded: Binding(
+                get: { howToOpen[ex.id] ?? (ex.id == currentExerciseID(s)) },
+                set: { howToOpen[ex.id] = $0 })) {
+                ExerciseHowTo(ex: ex).padding(.top, 8)
+            } label: {
+                Label("How to", systemImage: "figure.strengthtraining.functional")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .tint(accent)
             if s.status != "scheduled" && s.status != "missed" {
                 ForEach(1...ex.setCount, id: \.self) { n in setRow(ex, n, editable: s.status == "in_progress") }
             }
         }
+    }
+
+    /// The exercise you're on: the first one with sets still to do (its how-to
+    /// starts open; the rest start closed and open with a tap).
+    private func currentExerciseID(_ s: WorkoutState) -> Int? {
+        if s.status == "completed" { return nil }
+        return s.exercises.first { ex in
+            !(1...ex.setCount).allSatisfy { entries[SetEntry.key(ex.id, $0)]?.done == true }
+        }?.id
     }
 
     private func setRow(_ ex: WorkoutExercise, _ n: Int, editable: Bool) -> some View {
