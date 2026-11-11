@@ -294,12 +294,6 @@ struct ExerciseDetailScreen: View {
             VStack(alignment: .leading, spacing: 14) {
                 MusclePills(primary: ex.primaryMuscles ?? [], secondary: ex.secondaryMuscles ?? [],
                             tap: inSheet ? .push : .sheet)
-                // The pills above are the legend for this picture.
-                if hasMuscles {
-                    BodyDiagram(primary: ex.primaryMuscles ?? [], secondary: ex.secondaryMuscles ?? [],
-                                height: 170, showLegend: false)
-                        .padding(.vertical, 4)
-                }
                 if !gear.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 6) {
@@ -317,10 +311,18 @@ struct ExerciseDetailScreen: View {
                     Text(d).font(.subheadline).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                // How-to first (what you look at mid-workout), then the
+                // recommendation, then the labelled body diagram at the bottom.
+                Card { ExerciseHowTo(ex: ex) }
                 if let r = ex.recommended, RecommendedBlock.hasContent(r) {
                     Card { RecommendedBlock(rec: r) }
                 }
-                Card { ExerciseHowTo(ex: ex) }
+                if hasMuscles {
+                    Card(title: "Muscles worked") {
+                        BodyDiagram(primary: ex.primaryMuscles ?? [], secondary: ex.secondaryMuscles ?? [],
+                                    height: 220, showLegend: true)
+                    }
+                }
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)

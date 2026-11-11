@@ -282,15 +282,15 @@ struct WorkoutScreen: View {
                 get: { howToOpen[ex.id] ?? (ex.id == currentExerciseID(s)) },
                 set: { howToOpen[ex.id] = $0 })) {
                 VStack(alignment: .leading, spacing: 12) {
-                    // This exercise's muscles; the pills above are its legend.
-                    if !(ex.primaryMuscles ?? []).isEmpty || !(ex.secondaryMuscles ?? []).isEmpty {
-                        BodyDiagram(primary: ex.primaryMuscles ?? [], secondary: ex.secondaryMuscles ?? [],
-                                    height: 130, showLegend: false)
-                    }
+                    ExerciseHowTo(ex: ex)
                     if let r = ex.recommended, RecommendedBlock.hasContent(r) {
                         RecommendedBlock(rec: r)
                     }
-                    ExerciseHowTo(ex: ex)
+                    // This exercise's muscles at the bottom, with its colored legend.
+                    if !(ex.primaryMuscles ?? []).isEmpty || !(ex.secondaryMuscles ?? []).isEmpty {
+                        BodyDiagram(primary: ex.primaryMuscles ?? [], secondary: ex.secondaryMuscles ?? [],
+                                    height: 180, showLegend: true)
+                    }
                 }
                 .padding(.top, 8)
             } label: {
