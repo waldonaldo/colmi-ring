@@ -3,6 +3,48 @@ import UIKit
 import ImageIO
 import Combine
 import SafariServices
+import WebKit
+
+/// Plays a YouTube video inline (privacy-enhanced embed). The page is loaded
+/// with an https base URL so YouTube gets a referrer; embeds without one fail
+/// with "video player configuration error".
+struct YouTubePlayer: UIViewRepresentable {
+    let videoID: String
+
+    /// "watch?v=ID", "youtu.be/ID", "shorts/ID" or "embed/ID" -> ID.
+    static func id(fromURL s: String) -> String? {
+        guard let u = URL(string: s), let host = u.host?.lowercased(), host.contains("youtu") else { return nil }
+        if let v = URLComponents(url: u, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "v" })?.value,
+           !v.isEmpty { return v }
+        let parts = u.pathComponents.filter { $0 != "/" }
+        if host.contains("youtu.be") { return parts.first }
+        if let i = parts.firstIndex(where: { $0 == "shorts" || $0 == "embed" || $0 == "live" }), i + 1 < parts.count {
+            return parts[i + 1]
+        }
+        return nil
+    }
+
+    func makeUIView(context: Context) -> WKWebView {
+        let cfg = WKWebViewConfiguration()
+        cfg.allowsInlineMediaPlayback = true
+        let v = WKWebView(frame: .zero, configuration: cfg)
+        v.isOpaque = false
+        v.backgroundColor = .black
+        v.scrollView.isScrollEnabled = false
+        let html = """
+        <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+        <style>html,body{margin:0;height:100%;background:#000}iframe{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
+        </head><body><iframe src="https://www.youtube-nocookie.com/embed/\(videoID)?playsinline=1&rel=0"
+        allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen
+        referrerpolicy="strict-origin-when-cross-origin"></iframe></body></html>
+        """
+        let base = "https://" + (Bundle.main.bundleIdentifier ?? "naldo.fitness").lowercased() + "/"
+        v.loadHTMLString(html, baseURL: URL(string: base))
+        return v
+    }
+
+    func updateUIView(_ v: WKWebView, context: Context) {}
+}
 
 struct IdentifiedURL: Identifiable {
     let url: URL
@@ -98,6 +140,7 @@ struct ExerciseHowTo: View {
     @State private var paused = false
     @State private var loading = true
     @State private var videoURL: IdentifiedURL?
+    @State private var page = 0          // 0 = GIF/photos, 1 = video
     private let tick = Timer.publish(every: 0.9, on: .main, in: .common).autoconnect()
     private static let frameLabels = ["Start", "End"]
 
@@ -105,8 +148,13 @@ struct ExerciseHowTo: View {
     private var tips: [String] { ex.tips ?? [] }
     private var hasPictures: Bool { ex.gifPath != nil || !(ex.images ?? []).isEmpty }
 
+    /// The pinned video's YouTube id, if it is a YouTube link (plays in the viewer).
+    private var youTubeID: String? { ex.videoUrl.flatMap { YouTubePlayer.id(fromURL: $0) } }
+
     private var videoLink: (url: URL, title: String)? {
-        if let s = ex.videoUrl, let u = URL(string: s) { return (url: u, title: "Watch video") }
+        if let s = ex.videoUrl, let u = URL(string: s) {
+            return (url: u, title: youTubeID != nil ? "Video not playing? Open it" : "Watch video")
+        }
         var c = URLComponents(string: "https://www.youtube.com/results")
         c?.queryItems = [URLQueryItem(name: "search_query", value: "\(ex.exerciseName) exercise proper form")]
         guard let u = c?.url else { return nil }
@@ -115,14 +163,15 @@ struct ExerciseHowTo: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if hasPictures { media }
+            if hasPictures || youTubeID != nil { viewer }
             if let v = videoLink {
                 // Opens inside the app, so the workout (and the ring recording) stays put.
                 Button { videoURL = IdentifiedURL(url: v.url) } label: {
-                    Label(v.title, systemImage: "play.circle.fill")
-                        .font(.subheadline.weight(.semibold))
-                        .frame(maxWidth: .infinity, minHeight: 40)
-                        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                    Label(v.title, systemImage: youTubeID != nil ? "safari" : "play.circle.fill")
+                        .font(youTubeID != nil ? Font.caption : Font.subheadline.weight(.semibold))
+                        .foregroundStyle(youTubeID != nil ? Color.secondary : Color.primary)
+                        .frame(maxWidth: .infinity, minHeight: youTubeID != nil ? 28 : 40)
+                        .background(Color.white.opacity(youTubeID != nil ? 0 : 0.08), in: RoundedRectangle(cornerRadius: 12))
                 }
                 .buttonStyle(.plain)
             }
@@ -203,10 +252,58 @@ struct ExerciseHowTo: View {
                 .padding(8)
             }
         }
-        .frame(height: 210)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .contentShape(Rectangle())
         .onTapGesture { if frames.count > 1 { paused.toggle() } }
+    }
+
+    // GIF/photos first; swipe (or tap "Video") for the pinned video.
+    private var viewer: some View {
+        let both = hasPictures && youTubeID != nil
+        return VStack(spacing: 8) {
+            TabView(selection: $page) {
+                if hasPictures { media.tag(0) }
+                if let id = youTubeID { videoPage(id).tag(1) }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .frame(height: 230)
+            if both {
+                HStack(spacing: 8) {
+                    pagePill(gif != nil ? "GIF" : "Photos", "photo", 0)
+                    pagePill("Video", "play.rectangle.fill", 1)
+                    Spacer()
+                    Text(page == 0 ? "Swipe for video ›" : "‹ Swipe for the GIF")
+                        .font(.caption2).foregroundStyle(.tertiary)
+                }
+            }
+        }
+        .onAppear { if !hasPictures { page = 1 } }
+    }
+
+    private func pagePill(_ title: String, _ symbol: String, _ tag: Int) -> some View {
+        Button { withAnimation { page = tag } } label: {
+            Label(title, systemImage: symbol)
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .foregroundStyle(page == tag ? Color.black : Color.white)
+                .background(page == tag ? Palette.optimal : Color.white.opacity(0.1), in: Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// The player only exists while its page is showing, so swiping away stops it.
+    @ViewBuilder
+    private func videoPage(_ id: String) -> some View {
+        if page == 1 {
+            YouTubePlayer(videoID: id)
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+        } else {
+            ZStack {
+                RoundedRectangle(cornerRadius: 16).fill(Color.black.opacity(0.6))
+                Image(systemName: "play.circle.fill").font(.system(size: 44)).foregroundStyle(.white.opacity(0.8))
+            }
+        }
     }
 
     private func load() async {
