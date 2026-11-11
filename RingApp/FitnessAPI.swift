@@ -167,6 +167,8 @@ struct WorkoutExercise: Decodable, Identifiable {
     // Muscles and distance (Fitness 2026-11-11). Optional for older servers.
     let secondaryMuscles: [String]?
     let targetDistanceMi: Double?
+    // Recommended setup for you (Fitness 2026-11-11). Optional for older servers.
+    let recommended: ExerciseRecommendation?
 
     var isCardio: Bool { exerciseType == "cardio" }
 
@@ -188,6 +190,45 @@ struct WorkoutExercise: Decodable, Identifiable {
         if let s = targetDurationSec { return "\(sets)\(s) s" }
         return sets.isEmpty ? "" : "\(targetSets ?? 1) sets"
     }
+}
+
+/// The server's suggested sets/reps/time for this exercise, from how often you
+/// train and what you did last time. Numbers are Double so an odd value can't
+/// break decoding the whole workout.
+struct ExerciseRecommendation: Decodable {
+    let text: String?              // "3 sets × 10-12 reps · 60 s rest"
+    let how: String?               // reps | seconds | time
+    let note: String?
+    let sets: Double?
+    let reps: [Double]?            // min, max
+    let seconds: Double?
+    let minutes: Double?
+    let distanceMi: Double?
+    let mph: Double?
+    let rest: Double?
+    let side: String?              // arm | leg | side
+    let level: String?             // starting | building | regular
+    let why: [String]?
+    let targets: RecommendedTargets?
+    let last: RecommendedLast?
+}
+
+struct RecommendedTargets: Decodable {
+    let targetSets: Double?
+    let targetReps: Double?
+    let targetDurationSec: Double?
+    let targetDistanceMi: Double?
+    let restSeconds: Double?
+}
+
+/// What you did last time on this exercise (best completed set).
+struct RecommendedLast: Decodable {
+    let date: String?
+    let sets: Double?
+    let reps: Double?
+    let seconds: Double?
+    let weight: Double?
+    let miles: Double?
 }
 
 struct WorkoutSet: Decodable {
@@ -300,6 +341,31 @@ struct BPRating: Decodable {
     let rating: Int
     let category: BPCategory
     let lines: [String]
+    // Fuller read (Fitness 2026-11-11). Optional so older servers still decode.
+    let meaning: BPMeaning?
+    let driver: String?            // which number set the level
+    let verdict: String?           // better | worse | same | mixed | first
+    let headline: String?
+    let vsLast: BPCompare?
+    let vsAvg7: BPCompare?
+    let tips: [String]?
+}
+
+/// What the category means: "Top 130-139 or bottom 80-89" + a plain sentence.
+struct BPMeaning: Decodable {
+    let range: String?
+    let text: String?
+    let label: String?
+}
+
+/// This reading against the last one or the 7-day average. systolic and
+/// diastolic are the changes (negative = lower).
+struct BPCompare: Decodable {
+    let verdict: String?
+    let systolic: Int?
+    let diastolic: Int?
+    let against: String?           // "132/84"
+    let text: String?
 }
 
 struct BPReading: Decodable, Identifiable {

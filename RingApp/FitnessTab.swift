@@ -105,6 +105,7 @@ struct FitnessTab: View {
     @StateObject private var model = FitnessModel()
     @State private var openMed: AppMed?
     @State private var openWorkout: Int?
+    @State private var openGroup: MuscleGroupRef?
 
     private let accent = Section2.activity.accent
 
@@ -329,7 +330,21 @@ struct FitnessTab: View {
             if gs.isEmpty {
                 Text("Nothing logged or planned yet.").font(.subheadline).foregroundStyle(.secondary)
             }
-            ForEach(gs) { g in muscleGroupRow(g, scale: scale) }
+            ForEach(gs) { g in muscleGroupButton(g, scale: scale) }
+        }
+        .sheet(item: $openGroup) { ref in MuscleGroupSheet(groupKey: ref.id) }
+    }
+
+    /// Tap a group to read about it and see the exercises that work it.
+    @ViewBuilder
+    private func muscleGroupButton(_ g: MuscleWeekGroup, scale: Double) -> some View {
+        if let key = g.key, MuscleMap.group(key) != nil {
+            Button { openGroup = MuscleGroupRef(id: key) } label: {
+                muscleGroupRow(g, scale: scale, chevron: true).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        } else {
+            muscleGroupRow(g, scale: scale, chevron: false)
         }
     }
 
@@ -337,7 +352,7 @@ struct FitnessTab: View {
         g.label ?? MuscleMap.groupLabel(g.key ?? "")
     }
 
-    private func muscleGroupRow(_ g: MuscleWeekGroup, scale: Double) -> some View {
+    private func muscleGroupRow(_ g: MuscleWeekGroup, scale: Double, chevron: Bool) -> some View {
         let color: Color = MuscleMap.color(g.key ?? "")
         let done: Double = g.done ?? 0
         let planned: Double = g.planned ?? 0
@@ -347,6 +362,10 @@ struct FitnessTab: View {
         return VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline) {
                 Text(groupLabel(g)).font(.subheadline.weight(.medium))
+                if chevron {
+                    Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.tertiary)
+                }
                 Spacer()
                 Text(Self.setsText(done, planned)).font(.caption).foregroundStyle(.secondary)
             }

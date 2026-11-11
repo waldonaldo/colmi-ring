@@ -212,6 +212,10 @@ struct ExerciseRow: View {
                         Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                     }
                 }
+                if let t = ex.recommended?.text, !t.isEmpty {
+                    Text(t).font(.caption2.weight(.medium)).foregroundStyle(Section2.activity.accent)
+                        .lineLimit(1)
+                }
             }
         }
         .padding(.vertical, 2)
@@ -222,10 +226,60 @@ struct ExerciseRow: View {
     }
 }
 
+/// "Recommended for you": the server's suggested sets/reps/time, how to count
+/// them, and why (how often you train, what you did last time).
+struct RecommendedBlock: View {
+    let rec: ExerciseRecommendation
+    private let accent = Section2.activity.accent
+
+    static func hasContent(_ r: ExerciseRecommendation) -> Bool {
+        !(r.text ?? "").isEmpty
+    }
+
+    private var howLine: String? {
+        switch rec.how ?? "" {
+        case "reps": return "Count reps: do each set, rest, repeat."
+        case "seconds": return "Count seconds: hold or keep moving for the time, rest, repeat."
+        case "time": return "Go by time or distance."
+        default: return nil
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("Recommended for you", systemImage: "sparkles")
+                .font(.caption.weight(.semibold)).foregroundStyle(accent)
+            if let t = rec.text, !t.isEmpty {
+                Text(t).font(.subheadline.weight(.bold))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let n = rec.note, !n.isEmpty {
+                Text(n).font(.subheadline).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let h = howLine {
+                Text(h).font(.caption)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ForEach(rec.why ?? [], id: \.self) { w in
+                Text(w).font(.caption2).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 /// One exercise: muscles and equipment, then the full how-to.
 struct ExerciseDetailScreen: View {
     let ex: WorkoutExercise
+    let inSheet: Bool       // opened from a muscle group sheet: pills push, no new sheet
     private let accent = Section2.activity.accent
+
+    init(ex: WorkoutExercise, inSheet: Bool = false) {
+        self.ex = ex
+        self.inSheet = inSheet
+    }
 
     static func pretty(_ key: String) -> String {
         key.replacingOccurrences(of: "_", with: " ").capitalized
@@ -233,10 +287,19 @@ struct ExerciseDetailScreen: View {
 
     private var gear: [String] { MuscleMap.unique((ex.equipment ?? []).map(MuscleMap.gearLabel)) }
 
+    private var hasMuscles: Bool { !(ex.primaryMuscles ?? []).isEmpty || !(ex.secondaryMuscles ?? []).isEmpty }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                MusclePills(primary: ex.primaryMuscles ?? [], secondary: ex.secondaryMuscles ?? [])
+                MusclePills(primary: ex.primaryMuscles ?? [], secondary: ex.secondaryMuscles ?? [],
+                            tap: inSheet ? .push : .sheet)
+                // The pills above are the legend for this picture.
+                if hasMuscles {
+                    BodyDiagram(primary: ex.primaryMuscles ?? [], secondary: ex.secondaryMuscles ?? [],
+                                height: 170, showLegend: false)
+                        .padding(.vertical, 4)
+                }
                 if !gear.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 6) {
@@ -253,6 +316,9 @@ struct ExerciseDetailScreen: View {
                 if let d = ex.description, !d.isEmpty {
                     Text(d).font(.subheadline).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+                if let r = ex.recommended, RecommendedBlock.hasContent(r) {
+                    Card { RecommendedBlock(rec: r) }
                 }
                 Card { ExerciseHowTo(ex: ex) }
             }

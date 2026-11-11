@@ -50,6 +50,7 @@ struct WorkoutScreen: View {
                         else if s.status == "completed", let r = s.result { resultCard(WorkoutScore(
                             completionPct: r.completionPct, caloriesEst: r.caloriesEst, rank: r.rank,
                             durationSec: r.durationSec, plannedSets: nil, completedSets: nil)) }
+                        musclesCard(s)
                         if let recorded { AtlasProofCard(session: recorded, autoSend: true) }
                         ForEach(s.exercises) { ex in exerciseCard(ex, s) }
                         actions(s)
@@ -157,6 +158,24 @@ struct WorkoutScreen: View {
         }
     }
 
+    /// The whole workout's muscles on the body, labeled by group. Tap a
+    /// legend row to read about that group.
+    @ViewBuilder
+    private func musclesCard(_ s: WorkoutState) -> some View {
+        let p: [String] = s.exercises.flatMap { $0.primaryMuscles ?? [] }
+        let sec: [String] = s.exercises.flatMap { $0.secondaryMuscles ?? [] }
+        if let m = s.muscles, Self.hasMuscles(m) {
+            Card(title: "Muscles worked") { BodyDiagram(summary: m, height: 230) }
+        } else if !p.isEmpty || !sec.isEmpty {
+            Card(title: "Muscles worked") { BodyDiagram(primary: p, secondary: sec, height: 230) }
+        }
+    }
+
+    private static func hasMuscles(_ m: MuscleSummary) -> Bool {
+        !(m.primary ?? []).isEmpty || !(m.secondary ?? []).isEmpty
+            || !(m.groups ?? []).isEmpty || !(m.secondaryGroups ?? []).isEmpty
+    }
+
     private func statusLine(_ s: WorkoutState) -> String {
         let total = s.exercises.reduce(0) { $0 + $1.setCount }
         let done = entries.values.filter(\.done).count
@@ -250,6 +269,7 @@ struct WorkoutScreen: View {
 
     private func exerciseCard(_ ex: WorkoutExercise, _ s: WorkoutState) -> some View {
         Card(title: ex.exerciseName) {
+            recommendedLine(ex)
             MusclePills(primary: ex.primaryMuscles ?? [], secondary: ex.secondaryMuscles ?? [])
             HStack {
                 Text(ex.targetText).font(.subheadline).foregroundStyle(.secondary)
@@ -261,7 +281,18 @@ struct WorkoutScreen: View {
             DisclosureGroup(isExpanded: Binding(
                 get: { howToOpen[ex.id] ?? (ex.id == currentExerciseID(s)) },
                 set: { howToOpen[ex.id] = $0 })) {
-                ExerciseHowTo(ex: ex).padding(.top, 8)
+                VStack(alignment: .leading, spacing: 12) {
+                    // This exercise's muscles; the pills above are its legend.
+                    if !(ex.primaryMuscles ?? []).isEmpty || !(ex.secondaryMuscles ?? []).isEmpty {
+                        BodyDiagram(primary: ex.primaryMuscles ?? [], secondary: ex.secondaryMuscles ?? [],
+                                    height: 130, showLegend: false)
+                    }
+                    if let r = ex.recommended, RecommendedBlock.hasContent(r) {
+                        RecommendedBlock(rec: r)
+                    }
+                    ExerciseHowTo(ex: ex)
+                }
+                .padding(.top, 8)
             } label: {
                 Label("How to", systemImage: "figure.strengthtraining.functional")
                     .font(.subheadline.weight(.semibold))
@@ -269,6 +300,22 @@ struct WorkoutScreen: View {
             .tint(accent)
             if s.status != "scheduled" && s.status != "missed" {
                 ForEach(1...ex.setCount, id: \.self) { n in setRow(ex, n, editable: s.status == "in_progress") }
+            }
+        }
+    }
+
+    /// "Recommended: 3 sets × 10-12 reps · 60 s rest" (+ the note), under the name.
+    @ViewBuilder
+    private func recommendedLine(_ ex: WorkoutExercise) -> some View {
+        if let r = ex.recommended, let t = r.text, !t.isEmpty {
+            VStack(alignment: .leading, spacing: 2) {
+                Label("Recommended: \(t)", systemImage: "sparkles")
+                    .font(.caption.weight(.semibold)).foregroundStyle(accent)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let n = r.note, !n.isEmpty {
+                    Text(n).font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }

@@ -97,6 +97,13 @@ struct BPBriefCard: View {
                     BPBadge(category: l.category)
                     BPRatingBar(rating: l.category.rating)
                 }
+                if let h = l.analysis?.headline, !h.isEmpty {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Image(systemName: BPAnalysisView.symbol(l.analysis?.verdict))
+                            .foregroundStyle(BPAnalysisView.color(l.analysis?.verdict))
+                        Text(h).font(.caption)
+                    }
+                }
                 if let w = bp.week, let s = w.systolic, let d = w.diastolic {
                     Text("7-day average \(s)/\(d) · goal under \(bp.goal.systolic)/\(bp.goal.diastolic)")
                         .font(.caption).foregroundStyle(.secondary)
@@ -140,6 +147,7 @@ struct BloodPressureScreen: View {
                 }
                 if let s = summary {
                     overview(s)
+                    latestCard(s)
                     chart(s)
                     insights(s)
                     recent(s)
@@ -242,14 +250,13 @@ struct BloodPressureScreen: View {
                 Text("\(r.systolic)/\(r.diastolic)").font(.system(size: 34, weight: .light))
                 if let p = r.pulse { Text("pulse \(p)").font(.caption).foregroundStyle(.secondary) }
             }
-            HStack {
-                BPBadge(category: r.category)
-                BPRatingBar(rating: r.analysis?.rating ?? r.category.rating)
-            }
-            ForEach(r.analysis?.lines ?? [], id: \.self) { line in
-                Label(line, systemImage: "circle.fill")
-                    .labelStyle(BulletLabel())
-                    .font(.subheadline)
+            if let a = r.analysis {
+                BPAnalysisView(analysis: a, category: r.category)
+            } else {
+                HStack {
+                    BPBadge(category: r.category)
+                    BPRatingBar(rating: r.category.rating)
+                }
             }
             if let h = healthMessage {
                 Label(h, systemImage: h.hasPrefix("Saved") ? "heart.fill" : "exclamationmark.triangle")
@@ -288,6 +295,24 @@ struct BloodPressureScreen: View {
                 } else {
                     Text("--").font(.title)
                 }
+            }
+        }
+    }
+
+    /// The latest reading's full read. Hidden right after saving, when the
+    /// "Just saved" card already shows the same reading.
+    @ViewBuilder
+    private func latestCard(_ s: BPSummary) -> some View {
+        if let l = s.latest, let a = l.analysis, result?.id != l.id {
+            Card(title: "Latest reading") {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("\(l.systolic)/\(l.diastolic)").font(.system(size: 34, weight: .light))
+                    if let p = l.pulse { Text("pulse \(p)").font(.caption).foregroundStyle(.secondary) }
+                    Spacer()
+                    Text(l.date.formatted(date: .abbreviated, time: .shortened))
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                BPAnalysisView(analysis: a, category: l.category)
             }
         }
     }
@@ -360,6 +385,154 @@ struct BloodPressureScreen: View {
                     Text("\(r.category.rating)/5").font(.caption).foregroundStyle(.secondary)
                 }
             }
+        }
+    }
+}
+
+/// The server's read of one reading: better or worse than before, what the
+/// level means, which number set it, the comparisons, and tips. Shows just
+/// the badge, rating and lines when the server only sends those.
+struct BPAnalysisView: View {
+    let analysis: BPRating
+    let category: BPCategory
+
+    /// Lines that repeat a comparison row are skipped.
+    private var lines: [String] {
+        let skip: [String] = [analysis.vsLast?.text, analysis.vsAvg7?.text].compactMap { $0 }
+        return analysis.lines.filter { !$0.isEmpty && !skip.contains($0) }
+    }
+
+    private var tipList: [String] { (analysis.tips ?? []).filter { !$0.isEmpty } }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let h = analysis.headline, !h.isEmpty {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: Self.symbol(analysis.verdict))
+                        .foregroundStyle(Self.color(analysis.verdict))
+                    Text(h).font(.headline)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            HStack {
+                BPBadge(category: category)
+                BPRatingBar(rating: analysis.rating)
+            }
+            meaning
+            if let d = analysis.driver, !d.isEmpty {
+                Label(d, systemImage: "scope")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if analysis.vsLast != nil || analysis.vsAvg7 != nil {
+                VStack(spacing: 8) {
+                    if let c = analysis.vsLast { compareRow("Last reading", c) }
+                    if let c = analysis.vsAvg7 { compareRow("7-day avg", c) }
+                }
+            }
+            if !lines.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(lines, id: \.self) { line in
+                        Label(line, systemImage: "circle.fill")
+                            .labelStyle(BulletLabel())
+                            .font(.subheadline)
+                    }
+                }
+            }
+            if !tipList.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Tips", systemImage: "lightbulb")
+                        .font(.caption.weight(.semibold)).foregroundStyle(Palette.fair)
+                    ForEach(tipList, id: \.self) { t in
+                        Label(t, systemImage: "circle.fill")
+                            .labelStyle(BulletLabel())
+                            .font(.subheadline)
+                    }
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Palette.fair.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+            }
+        }
+    }
+
+    /// "Top 130-139 or bottom 80-89" + what that level means.
+    @ViewBuilder
+    private var meaning: some View {
+        if let m = analysis.meaning {
+            VStack(alignment: .leading, spacing: 3) {
+                if let r = m.range, !r.isEmpty {
+                    Text(r).font(.caption.weight(.semibold)).foregroundStyle(category.color)
+                }
+                if let t = m.text, !t.isEmpty {
+                    Text(t).font(.subheadline).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    /// "LAST READING  ↓-6/↓-3  from 132/84 | Better than your last reading..."
+    private func compareRow(_ title: String, _ c: BPCompare) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title.uppercased()).font(.caption2.weight(.semibold)).tracking(0.8)
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 3) {
+                    change(c.systolic)
+                    Text("/").foregroundStyle(.secondary)
+                    change(c.diastolic)
+                }
+                .font(.subheadline.weight(.semibold)).monospacedDigit()
+                if let a = c.against, !a.isEmpty {
+                    Text("from \(a)").font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 104, alignment: .leading)
+            if let t = c.text, !t.isEmpty {
+                Text(t).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    /// A signed change with a small arrow: down is green, up is red.
+    @ViewBuilder
+    private func change(_ v: Int?) -> some View {
+        if let v {
+            HStack(spacing: 1) {
+                Image(systemName: v < 0 ? "arrow.down" : (v > 0 ? "arrow.up" : "equal"))
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(v < 0 ? Palette.optimal : (v > 0 ? Palette.low : Color.secondary))
+                Text(Self.signed(v))
+            }
+        } else {
+            Text("--")
+        }
+    }
+
+    static func signed(_ v: Int) -> String { v > 0 ? "+\(v)" : "\(v)" }
+
+    static func symbol(_ verdict: String?) -> String {
+        switch verdict ?? "" {
+        case "better": return "arrow.down.circle.fill"
+        case "worse": return "arrow.up.circle.fill"
+        case "same": return "equal.circle"
+        case "mixed": return "arrow.up.arrow.down.circle"
+        case "first": return "sparkles"
+        default: return "info.circle"
+        }
+    }
+
+    static func color(_ verdict: String?) -> Color {
+        switch verdict ?? "" {
+        case "better": return Palette.optimal
+        case "worse": return Palette.low
+        case "mixed": return Palette.fair
+        default: return Color.gray
         }
     }
 }

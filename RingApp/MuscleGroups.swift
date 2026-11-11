@@ -62,6 +62,9 @@ enum MuscleMap {
 
     static func group(_ key: String) -> MuscleGroup? { groups.first { $0.id == key } }
 
+    /// The group a muscle belongs to ("biceps" -> Arms).
+    static func groupFor(muscle: String) -> MuscleGroup? { groups.first { $0.muscles.contains(muscle) } }
+
     static func groupLabel(_ key: String) -> String { group(key)?.label ?? label(key) }
 
     static func color(_ groupKey: String) -> Color { group(groupKey)?.color ?? Color.white.opacity(0.6) }
@@ -95,16 +98,30 @@ enum MuscleMap {
     }
 }
 
+/// What tapping a group pill does: open the group's sheet, push the group's
+/// screen (inside that sheet, so sheets don't stack), or nothing.
+enum MusclePillTap {
+    case sheet, push, off
+}
+
+/// A group key, for .sheet(item:).
+struct MuscleGroupRef: Identifiable {
+    let id: String
+}
+
 /// Group pills (main groups filled, secondary ones outlined) and a line of
-/// muscle names. groupsOnly drops the names line.
+/// muscle names. groupsOnly drops the names line. Tap a pill to read about
+/// that group.
 struct MusclePills: View {
     let primary: [String]
     let secondary: [String]
     let primaryGroups: [String]
     let secondaryGroups: [String]
     let groupsOnly: Bool
+    let tap: MusclePillTap
+    @State private var open: MuscleGroupRef?
 
-    init(primary: [String], secondary: [String], groupsOnly: Bool = false) {
+    init(primary: [String], secondary: [String], groupsOnly: Bool = false, tap: MusclePillTap = .sheet) {
         let p: [String] = MuscleMap.unique(primary)
         let s: [String] = MuscleMap.unique(secondary).filter { !p.contains($0) }
         let pg: [String] = MuscleMap.groupKeys(p)
@@ -113,10 +130,11 @@ struct MusclePills: View {
         self.primaryGroups = pg
         self.secondaryGroups = MuscleMap.groupKeys(s).filter { !pg.contains($0) }
         self.groupsOnly = groupsOnly
+        self.tap = tap
     }
 
     /// From the server's summary (a workout's or a routine's muscles).
-    init(summary: MuscleSummary, groupsOnly: Bool = false) {
+    init(summary: MuscleSummary, groupsOnly: Bool = false, tap: MusclePillTap = .sheet) {
         let p: [String] = MuscleMap.unique(summary.primary ?? [])
         let s: [String] = MuscleMap.unique(summary.secondary ?? []).filter { !p.contains($0) }
         let pg: [String] = MuscleMap.unique(summary.groups ?? MuscleMap.groupKeys(p))
@@ -126,6 +144,7 @@ struct MusclePills: View {
         self.primaryGroups = pg
         self.secondaryGroups = sg.filter { !pg.contains($0) }
         self.groupsOnly = groupsOnly
+        self.tap = tap
     }
 
     private var hasGroups: Bool { !primaryGroups.isEmpty || !secondaryGroups.isEmpty }
@@ -146,16 +165,41 @@ struct MusclePills: View {
                     Text(names).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                 }
             }
+            .sheet(item: $open) { ref in MuscleGroupSheet(groupKey: ref.id) }
         }
     }
 
+    @ViewBuilder
     private func pill(_ key: String, main: Bool) -> some View {
+        if MuscleMap.group(key) == nil {
+            pillLabel(key, main: main, chevron: false)
+        } else {
+            switch tap {
+            case .sheet:
+                Button { open = MuscleGroupRef(id: key) } label: { pillLabel(key, main: main, chevron: true) }
+                    .buttonStyle(.plain)
+            case .push:
+                NavigationLink { MuscleGroupScreen(groupKey: key) } label: { pillLabel(key, main: main, chevron: true) }
+                    .buttonStyle(.plain)
+            case .off:
+                pillLabel(key, main: main, chevron: false)
+            }
+        }
+    }
+
+    private func pillLabel(_ key: String, main: Bool, chevron: Bool) -> some View {
         let c: Color = MuscleMap.color(key)
-        return Text(MuscleMap.groupLabel(key))
-            .font(.caption2.weight(.semibold))
-            .padding(.horizontal, 9).padding(.vertical, 4)
-            .foregroundStyle(main ? c : c.opacity(0.7))
-            .background(main ? c.opacity(0.2) : Color.clear, in: Capsule())
-            .overlay(Capsule().stroke(c.opacity(main ? 0 : 0.45), lineWidth: 1))
+        return HStack(spacing: 3) {
+            Text(MuscleMap.groupLabel(key))
+            if chevron {
+                Image(systemName: "chevron.right").font(.system(size: 7, weight: .bold)).opacity(0.7)
+            }
+        }
+        .font(.caption2.weight(.semibold))
+        .padding(.horizontal, 9).padding(.vertical, 4)
+        .foregroundStyle(main ? c : c.opacity(0.7))
+        .background(main ? c.opacity(0.2) : Color.clear, in: Capsule())
+        .overlay(Capsule().stroke(c.opacity(main ? 0 : 0.45), lineWidth: 1))
+        .contentShape(Capsule())
     }
 }
