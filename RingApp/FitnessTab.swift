@@ -223,6 +223,23 @@ struct FitnessTab: View {
                 }
                 .buttonStyle(.plain)
             }
+            // Free-choice days: pick any exercise and see how to do it.
+            NavigationLink { ExerciseLibraryScreen() } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "figure.strengthtraining.functional")
+                        .font(.title3).foregroundStyle(accent).frame(width: 36)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Exercise how-to").font(.subheadline.weight(.semibold))
+                        Text("Doing your own thing? Pictures, steps and videos for every exercise.")
+                            .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.leading)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                }
+                .padding(.top, 4)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
     }
 

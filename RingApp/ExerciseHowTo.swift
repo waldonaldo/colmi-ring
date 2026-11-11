@@ -2,6 +2,19 @@ import SwiftUI
 import UIKit
 import ImageIO
 import Combine
+import SafariServices
+
+struct IdentifiedURL: Identifiable {
+    let url: URL
+    var id: String { url.absoluteString }
+}
+
+/// In-app browser for exercise videos (YouTube plays inside it).
+struct SafariView: UIViewControllerRepresentable {
+    let url: URL
+    func makeUIViewController(context: Context) -> SFSafariViewController { SFSafariViewController(url: url) }
+    func updateUIViewController(_ vc: SFSafariViewController, context: Context) {}
+}
 
 // MARK: - Exercise how-to (Fitness 2026-11-10)
 //
@@ -84,6 +97,7 @@ struct ExerciseHowTo: View {
     @State private var frame = 0
     @State private var paused = false
     @State private var loading = true
+    @State private var videoURL: IdentifiedURL?
     private let tick = Timer.publish(every: 0.9, on: .main, in: .common).autoconnect()
     private static let frameLabels = ["Start", "End"]
 
@@ -103,12 +117,14 @@ struct ExerciseHowTo: View {
         VStack(alignment: .leading, spacing: 12) {
             if hasPictures { media }
             if let v = videoLink {
-                Link(destination: v.url) {
+                // Opens inside the app, so the workout (and the ring recording) stays put.
+                Button { videoURL = IdentifiedURL(url: v.url) } label: {
                     Label(v.title, systemImage: "play.circle.fill")
                         .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity, minHeight: 40)
                         .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
                 }
+                .buttonStyle(.plain)
             }
             if !steps.isEmpty {
                 Text("HOW TO DO IT").font(.caption2.weight(.semibold)).tracking(1.1).foregroundStyle(.secondary)
@@ -139,6 +155,7 @@ struct ExerciseHowTo: View {
                 Text(credit).font(.caption2).foregroundStyle(.tertiary)
             }
         }
+        .sheet(item: $videoURL) { v in SafariView(url: v.url).ignoresSafeArea() }
         .task(id: ex.id) { await load() }
         .onReceive(tick) { _ in
             guard frames.count > 1, !paused else { return }
@@ -152,9 +169,15 @@ struct ExerciseHowTo: View {
             if let gif {
                 AnimatedImageView(image: gif)
             } else if !frames.isEmpty {
-                Image(uiImage: frames[min(frame, frames.count - 1)])
-                    .resizable().scaledToFit()
-                    .animation(.easeInOut(duration: 0.15), value: frame)
+                // Start/end photos cross-fade back and forth, like a slow GIF.
+                ZStack {
+                    ForEach(frames.indices, id: \.self) { i in
+                        Image(uiImage: frames[i])
+                            .resizable().scaledToFit()
+                            .opacity(i == frame ? 1 : 0)
+                    }
+                }
+                .animation(.easeInOut(duration: 0.35), value: frame)
             } else if loading {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {

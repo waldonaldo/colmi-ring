@@ -25,6 +25,9 @@ struct WorkoutScreen: View {
     @State private var score: WorkoutScore?
     @State private var finishing = false
     @State private var confirmFinish = false
+    @State private var confirmFinishAgain = false
+    @State private var showLibrary = false
+    @AppStorage(WorkoutPrefs.autoRecordKey) private var autoRecord = true
     @State private var confirmClose = false
     @State private var started = Date()
     @State private var howToOpen: [Int: Bool] = [:]   // workout_exercise id -> expanded
@@ -71,13 +74,35 @@ struct WorkoutScreen: View {
                         if state?.status == "in_progress" && score == nil { confirmClose = true } else { close() }
                     }
                 }
+                ToolbarItem(placement: .primaryAction) {
+                    Button { showLibrary = true } label: {
+                        Label("All exercises", systemImage: "list.bullet.rectangle")
+                    }
+                }
+            }
+            .sheet(isPresented: $showLibrary) {
+                NavigationStack {
+                    ExerciseLibraryScreen()
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) { Button("Done") { showLibrary = false } }
+                        }
+                }
             }
             .task { await load() }
+            // Finishing asks twice, so a stray tap near the bottom can't end it.
             .confirmationDialog("Finish this workout?", isPresented: $confirmFinish, titleVisibility: .visible) {
-                Button("Finish and score it") { Task { await finish() } }
+                Button("Yes, finish it") {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { confirmFinishAgain = true }
+                }
                 Button("Keep going", role: .cancel) {}
             } message: {
-                Text("The Fitness server scores it and the ring's heart rate goes to Atlas as proof.")
+                Text("You'll be asked once more before it ends.")
+            }
+            .alert("Really finish now?", isPresented: $confirmFinishAgain) {
+                Button("Finish and score it", role: .destructive) { Task { await finish() } }
+                Button("Keep going", role: .cancel) {}
+            } message: {
+                Text(finishMessage)
             }
             .confirmationDialog("Leave the workout?", isPresented: $confirmClose, titleVisibility: .visible) {
                 Button("Leave (keeps your sets, recording continues)") { close() }
@@ -87,6 +112,12 @@ struct WorkoutScreen: View {
             }
         }
         .interactiveDismissDisabled(state?.status == "in_progress" && score == nil)
+    }
+
+    private var finishMessage: String {
+        let total = state?.exercises.reduce(0) { $0 + $1.setCount } ?? 0
+        let done = entries.values.filter(\.done).count
+        return "\(done) of \(total) sets done. After this you can't log more sets. The Fitness server scores it and the ring's heart rate goes to Atlas as proof."
     }
 
     private func close() {
@@ -144,6 +175,7 @@ struct WorkoutScreen: View {
                 }
             }
             LiveZoneBar(bpm: capture?.liveHeartRate, zones: HeartZones(age: store.age))
+            ringControl
           }
             .padding(16)
             .background(Palette.card, in: RoundedRectangle(cornerRadius: 20))
@@ -152,6 +184,30 @@ struct WorkoutScreen: View {
     }
 
     private var isRecording: Bool { capture?.activeKind == .workout }
+
+    /// Up top in the live card (it used to sit by Finish at the bottom).
+    @ViewBuilder
+    private var ringControl: some View {
+        if isRecording || capture == nil {
+            EmptyView()
+        } else if !ring.isConnected {
+            Label("Ring not connected. Connect it to record heart rate.", systemImage: "heart.slash")
+                .font(.caption).foregroundStyle(.secondary)
+        } else if capture?.isCapturing == true {
+            Label("The ring is busy with another recording. Stop that one to record this workout.",
+                  systemImage: "waveform.path.ecg")
+                .font(.caption).foregroundStyle(.secondary)
+        } else {
+            Button { startRecording() } label: {
+                Label("Start ring heart rate", systemImage: "heart.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity).frame(height: 44)
+                    .background(accent, in: Capsule())
+                    .foregroundStyle(Color.black)
+            }
+            .buttonStyle(.plain)
+        }
+    }
 
     private var elapsedText: String {
         let secs = Int(Date().timeIntervalSince(started))
@@ -254,23 +310,25 @@ struct WorkoutScreen: View {
         case "scheduled", "missed":
             VStack(spacing: 8) {
                 bigButton("Start workout") { Task { await start() } }
-                Text(ring.isConnected
-                     ? "The ring records your heart rate the whole time - keep the phone nearby."
-                     : "Ring not connected: sets still save, but there's no heart rate for Atlas.")
+                Toggle("Ring heart rate starts with the workout", isOn: $autoRecord)
+                    .font(.subheadline).tint(accent)
+                    .padding(.horizontal, 4)
+                Text(startHint)
                     .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }
         case "in_progress" where score == nil:
-            VStack(spacing: 8) {
-                if !isRecording, ring.isConnected, capture?.isCapturing == false {
-                    Button("Start ring heart-rate recording") { startRecording() }
-                        .font(.subheadline)
-                }
-                bigButton(finishing ? "Finishing…" : "Finish workout") { confirmFinish = true }
-                    .disabled(finishing)
-            }
+            bigButton(finishing ? "Finishing…" : "Finish workout") { confirmFinish = true }
+                .disabled(finishing)
         default:
             bigButton("Done") { close() }
         }
+    }
+
+    private var startHint: String {
+        if !ring.isConnected { return "Ring not connected: sets still save, but there's no heart rate for Atlas." }
+        return autoRecord
+            ? "The ring records your heart rate the whole time - keep the phone nearby."
+            : "Tap Start ring heart rate at the top of the workout when you want it recorded."
     }
 
     private func bigButton(_ title: String, action: @escaping () -> Void) -> some View {
@@ -320,7 +378,7 @@ struct WorkoutScreen: View {
             let s: WorkoutState = try await link.api("/api/app/workouts/\(workoutID)/start", method: "POST")
             apply(s)
             started = Date()
-            startRecording()
+            if autoRecord { startRecording() }
             UIApplication.shared.isIdleTimerDisabled = true
         } catch {
             self.error = FitnessModel.message(error)
@@ -483,5 +541,27 @@ struct WorkoutHistoryScreen: View {
             self.error = FitnessModel.message(error)
         }
         loaded = true
+    }
+}
+
+// MARK: - Workout settings
+
+enum WorkoutPrefs {
+    /// On (default): the ring starts recording heart rate when you tap Start
+    /// workout. Off: only when you tap Start ring heart rate.
+    static let autoRecordKey = "workoutAutoRecordHR"
+}
+
+struct WorkoutPrefsSection: View {
+    @AppStorage(WorkoutPrefs.autoRecordKey) private var autoRecord = true
+
+    var body: some View {
+        Section {
+            Toggle("Ring heart rate starts with the workout", isOn: $autoRecord)
+        } header: {
+            Text("Workouts")
+        } footer: {
+            Text("On: the ring records heart rate as soon as you tap Start workout. Off: it waits until you tap Start ring heart rate at the top of the workout screen.")
+        }
     }
 }
