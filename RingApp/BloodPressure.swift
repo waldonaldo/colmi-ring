@@ -191,6 +191,7 @@ struct BloodPressureScreen: View {
             .disabled(!canSave || saving)
             Text("Sit quietly 5 minutes first, feet flat, arm at heart level. Take 2 readings a minute apart, morning and evening.")
                 .font(.caption).foregroundStyle(.secondary)
+            BPHowToCard()
         }
     }
 
