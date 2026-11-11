@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 // MARK: - Body diagram (Fitness 2026-11-11)
 //
