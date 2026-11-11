@@ -154,6 +154,9 @@ struct WorkoutExercise: Decodable, Identifiable {
     let mediaCredit: String?
     let primaryMuscles: [String]?
     let equipment: [String]?
+    let defaultSpeed: Double?      // cardio: mph to pre-fill
+
+    var isCardio: Bool { exerciseType == "cardio" }
 
     /// Logged by time (planks, treadmill) rather than reps.
     var isTimed: Bool {
@@ -179,6 +182,11 @@ struct WorkoutSet: Decodable {
     let durationSec: Int?
     let heartRate: Int?
     let isCompleted: Int
+    // Treadmill (Fitness 2026-11-11). Optional so older servers still decode.
+    let speed: Double?
+    let incline: Double?
+    let distanceMi: Double?
+    let completedAt: String?
 }
 
 struct WorkoutResult: Decodable {

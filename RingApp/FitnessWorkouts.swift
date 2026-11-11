@@ -20,6 +20,7 @@ struct WorkoutScreen: View {
     @State private var error: String?
     @State private var entries: [String: SetEntry] = [:]
     @State private var saving: Set<String> = []
+    @State private var pendingSave: [String: Task<Void, Never>] = [:]   // edits to a done set
     @State private var recordTask: Task<CaptureSession?, Never>?
     @State private var recorded: CaptureSession?
     @State private var score: WorkoutScore?
@@ -267,10 +268,29 @@ struct WorkoutScreen: View {
     private func setRow(_ ex: WorkoutExercise, _ n: Int, editable: Bool) -> some View {
         let key = SetEntry.key(ex.id, n)
         let entry = Binding(get: { entries[key] ?? SetEntry(ex) }, set: { entries[key] = $0 })
+        let miles = Binding(get: { entry.wrappedValue.miles },
+                            set: { entry.wrappedValue.miles = $0; entry.wrappedValue.milesAuto = false })
         return HStack(spacing: 10) {
             Text("\(n)").font(.subheadline.weight(.semibold)).frame(width: 22)
                 .foregroundStyle(.secondary)
-            if ex.isTimed {
+            if ex.isCardio {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 10) {
+                        field("min", entry.minutes, editable, decimal: true)
+                        field("mi", miles, editable, decimal: true)
+                    }
+                    HStack(spacing: 10) {
+                        field("mph", entry.mph, editable, decimal: true)
+                        field("% incl", entry.incline, editable, decimal: true)
+                    }
+                    if entry.wrappedValue.done, let at = entry.wrappedValue.doneAt {
+                        Text("Done \(at)").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .onChange(of: entry.wrappedValue.typed) { _, _ in
+                    if editable, entry.wrappedValue.done { saveSoon(ex, n) }
+                }
+            } else if ex.isTimed {
                 field("sec", entry.seconds, editable)
             } else {
                 field("reps", entry.reps, editable)
@@ -292,10 +312,10 @@ struct WorkoutScreen: View {
         }
     }
 
-    private func field(_ unit: String, _ text: Binding<String>, _ editable: Bool) -> some View {
+    private func field(_ unit: String, _ text: Binding<String>, _ editable: Bool, decimal: Bool = false) -> some View {
         HStack(spacing: 4) {
             TextField("0", text: text)
-                .keyboardType(.numberPad)
+                .keyboardType(decimal ? .decimalPad : .numberPad)
                 .multilineTextAlignment(.center)
                 .frame(width: 56, height: 36)
                 .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
@@ -367,7 +387,13 @@ struct WorkoutScreen: View {
             var e = SetEntry(ex)
             if let r = set.reps { e.reps = String(r) }
             if let w = set.weight { e.weight = Self.num(w) }
-            if let d = set.durationSec { e.seconds = String(d) }
+            if let d = set.durationSec { e.seconds = String(d); e.minutes = SetEntry.minutes(d) }
+            if ex.isCardio {
+                e.mph = set.speed.map(Self.num) ?? e.mph
+                e.incline = set.incline.map(Self.num) ?? ""
+                e.miles = set.distanceMi.map(SetEntry.miles) ?? ""
+            }
+            e.doneAt = SetEntry.clock(set.completedAt)
             e.done = set.isCompleted == 1
             entries[SetEntry.key(ex.id, set.setNumber)] = e
         }
@@ -393,21 +419,59 @@ struct WorkoutScreen: View {
 
     private func toggle(_ ex: WorkoutExercise, _ n: Int) async {
         let key = SetEntry.key(ex.id, n)
+        pendingSave[key]?.cancel()
         var e = entries[key] ?? SetEntry(ex)
         e.done.toggle()
         saving.insert(key)
         defer { saving.remove(key) }
+        if await save(ex, n, e) {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        }
+    }
+
+    /// Miles or speed changed on a set that's already ticked: save it a moment later.
+    private func saveSoon(_ ex: WorkoutExercise, _ n: Int) {
+        let key = SetEntry.key(ex.id, n)
+        pendingSave[key]?.cancel()
+        pendingSave[key] = Task {
+            try? await Task.sleep(for: .seconds(1.2))
+            guard !Task.isCancelled, let e = entries[key], e.done else { return }
+            _ = await save(ex, n, e)
+        }
+    }
+
+    @discardableResult
+    private func save(_ ex: WorkoutExercise, _ n: Int, _ entry: SetEntry) async -> Bool {
+        let key = SetEntry.key(ex.id, n)
+        var e = entry
         var body: [String: Any] = ["workout_exercise_id": ex.id, "set_number": n, "is_completed": e.done]
         if let r = Int(e.reps) { body["reps"] = r }
         if let w = Double(e.weight) { body["weight"] = w }
-        if let s = Int(e.seconds) { body["duration_sec"] = s }
+        if ex.isCardio {
+            if let m = SetEntry.number(e.minutes) { body["duration_sec"] = Int((m * 60).rounded()) }
+            if let s = SetEntry.number(e.mph) { body["speed"] = s }
+            if let i = SetEntry.number(e.incline) { body["incline"] = i }
+            // Typed miles win; otherwise the server works them out from mph x time.
+            if !e.milesAuto, let d = SetEntry.number(e.miles) { body["distance_mi"] = d }
+        } else if let s = Int(e.seconds) { body["duration_sec"] = s }
         if let hr = capture?.liveHeartRate { body["heart_rate"] = hr }
         do {
-            let _: EmptyReply = try await link.api("/api/app/workouts/\(workoutID)/sets", method: "POST", body: body)
-            entries[key] = e
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            let row: WorkoutSet = try await link.api("/api/app/workouts/\(workoutID)/sets", method: "POST", body: body)
+            e.doneAt = SetEntry.clock(row.completedAt)
+            if ex.isCardio, e.milesAuto || e.miles.isEmpty, let d = row.distanceMi {
+                e.miles = SetEntry.miles(d)
+                e.milesAuto = true
+            }
+            // Keep anything typed while the save was in flight.
+            var now = entries[key] ?? e
+            now.done = e.done
+            now.doneAt = e.doneAt
+            if now.typed == entry.typed { now.miles = e.miles; now.milesAuto = e.milesAuto }
+            entries[key] = now
+            return true
         } catch {
             self.error = FitnessModel.message(error)
+            return false
         }
     }
 
@@ -456,12 +520,44 @@ struct SetEntry {
     var reps = ""
     var weight = ""
     var seconds = ""
+    // Treadmill / cardio
+    var minutes = ""
+    var miles = ""
+    var milesAuto = false     // filled from mph x time, not typed
+    var mph = ""
+    var incline = ""
+    var doneAt: String?       // "7:42 AM"
     var done = false
 
     init(_ ex: WorkoutExercise) {
         reps = ex.targetReps.map(String.init) ?? ""
         weight = ex.targetWeight.map(WorkoutScreen.num) ?? ""
         seconds = ex.targetDurationSec.map(String.init) ?? ""
+        if ex.isCardio {
+            minutes = ex.targetDurationSec.map(Self.minutes) ?? ""
+            mph = ex.defaultSpeed.map(WorkoutScreen.num) ?? ""
+        }
+    }
+
+    /// The cardio fields together, to notice edits.
+    var typed: String { [minutes, miles, mph, incline].joined(separator: "|") }
+
+    static func number(_ s: String) -> Double? {
+        Double(s.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: "."))
+    }
+    static func minutes(_ sec: Int) -> String {
+        let m = Double(sec) / 60
+        return m == m.rounded() ? String(Int(m)) : String(format: "%.1f", m)
+    }
+    static func miles(_ d: Double) -> String {
+        var s = String(format: "%.2f", d)
+        while s.hasSuffix("0") { s.removeLast() }
+        if s.hasSuffix(".") { s.removeLast() }
+        return s
+    }
+    static func clock(_ iso: String?) -> String? {
+        guard let iso, let d = ISO8601DateFormatter.flexible.date(from: iso) else { return nil }
+        return d.formatted(date: .omitted, time: .shortened)
     }
 
     static func key(_ exerciseID: Int, _ n: Int) -> String { "\(exerciseID)-\(n)" }
