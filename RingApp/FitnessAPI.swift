@@ -129,6 +129,15 @@ struct WorkoutState: Decodable {
     let exercises: [WorkoutExercise]
     let sets: [WorkoutSet]?
     let result: WorkoutResult?
+    let muscles: MuscleSummary?    // Fitness 2026-11-11
+}
+
+/// Muscle keys and group keys a workout or routine works.
+struct MuscleSummary: Decodable {
+    let primary: [String]?
+    let secondary: [String]?
+    let groups: [String]?
+    let secondaryGroups: [String]?
 }
 
 struct WorkoutExercise: Decodable, Identifiable {
@@ -155,6 +164,9 @@ struct WorkoutExercise: Decodable, Identifiable {
     let primaryMuscles: [String]?
     let equipment: [String]?
     let defaultSpeed: Double?      // cardio: mph to pre-fill
+    // Muscles and distance (Fitness 2026-11-11). Optional for older servers.
+    let secondaryMuscles: [String]?
+    let targetDistanceMi: Double?
 
     var isCardio: Bool { exerciseType == "cardio" }
 
@@ -165,7 +177,12 @@ struct WorkoutExercise: Decodable, Identifiable {
     var setCount: Int { max(1, targetSets ?? 1) }
 
     var targetText: String {
-        if exerciseType == "cardio", let s = targetDurationSec { return "\(s / 60) min" }
+        if exerciseType == "cardio" {
+            var parts: [String] = []
+            if let d = targetDistanceMi, d > 0 { parts.append("\(SetEntry.miles(d)) mi") }
+            if let s = targetDurationSec { parts.append("\(s / 60) min") }
+            if !parts.isEmpty { return parts.joined(separator: " · ") }
+        }
         let sets = targetSets.map { "\($0) × " } ?? ""
         if let r = targetReps { return "\(sets)\(r) reps" }
         if let s = targetDurationSec { return "\(sets)\(s) s" }
@@ -210,6 +227,66 @@ struct WorkoutScore: Decodable {
 }
 
 struct WorkoutHistory: Decodable { let workouts: [WorkoutRow] }
+
+// Muscles worked this week (/api/app/workouts/muscles). done = sets completed
+// (secondary muscles count half), planned = sets still scheduled.
+
+struct MuscleWeek: Decodable {
+    let from: String?
+    let to: String?
+    let workouts: Int?
+    let groups: [MuscleWeekGroup]?
+}
+
+struct MuscleWeekGroup: Decodable, Identifiable {
+    let key: String?
+    let label: String?
+    let done: Double?
+    let planned: Double?
+    let last: String?              // YYYY-MM-DD
+    let muscles: [MuscleWeekMuscle]?
+    var id: String { key ?? label ?? "" }
+}
+
+struct MuscleWeekMuscle: Decodable, Identifiable {
+    let key: String?
+    let label: String?
+    let done: Double?
+    let planned: Double?
+    var id: String { key ?? label ?? "" }
+}
+
+// Routines (/api/app/routines). Made on the website; the phone turns them on/off.
+
+struct RoutineList: Decodable {
+    let routines: [AppRoutine]?
+    let aheadDays: Int?
+}
+
+struct AppRoutine: Decodable, Identifiable {
+    let id: Int
+    let name: String?
+    let days: [Int]?               // 0 = Sunday ... 6 = Saturday
+    let startTime: String?         // "HH:MM"
+    let estDurationMin: Int?
+    let notes: String?
+    let isActive: Int?             // 0 / 1
+    let nextDate: String?
+    let exercises: [RoutineExercise]?
+    let muscles: MuscleSummary?
+}
+
+struct RoutineExercise: Decodable {
+    let exerciseId: Int?
+    let exerciseName: String?
+    let exerciseType: String?
+    let targetSets: Int?
+    let targetReps: Int?
+    let targetDurationSec: Int?
+    let targetDistanceMi: Double?
+    let primaryMuscles: [String]?
+    let secondaryMuscles: [String]?
+}
 
 // Blood pressure
 

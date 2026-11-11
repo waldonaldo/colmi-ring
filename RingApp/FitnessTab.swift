@@ -13,6 +13,11 @@ final class FitnessModel: ObservableObject {
     @Published private(set) var error: String?
     @Published private(set) var loading = false
     @Published var busyMed: Int?
+    // Fitness 2026-11-11. nil = not loaded or an older server (the cards hide).
+    @Published private(set) var muscleWeek: MuscleWeek?
+    @Published private(set) var routines: [AppRoutine]?
+    @Published var busyRoutine: Int?
+    @Published private(set) var routineOn: [Int: Bool] = [:]   // flipped, waiting for the reload
 
     private let link = FitnessLink.shared
 
@@ -20,10 +25,51 @@ final class FitnessModel: ObservableObject {
         guard link.isConfigured else { error = FitnessAPIError.notConfigured.errorDescription; return }
         loading = true
         defer { loading = false }
+        async let weekReply: MuscleWeek? = loadMuscleWeek()
+        async let routinesReply: RoutineList? = loadRoutines()
         do {
             today = try await link.api("/api/app/today")
             error = nil
         } catch {
+            self.error = Self.message(error)
+        }
+        muscleWeek = await weekReply
+        routines = (await routinesReply)?.routines
+        routineOn = [:]
+    }
+
+    private func loadMuscleWeek() async -> MuscleWeek? {
+        do {
+            let w: MuscleWeek = try await link.api("/api/app/workouts/muscles")
+            return w
+        } catch {
+            return nil
+        }
+    }
+
+    private func loadRoutines() async -> RoutineList? {
+        do {
+            let r: RoutineList = try await link.api("/api/app/routines")
+            return r
+        } catch {
+            return nil
+        }
+    }
+
+    func isOn(_ r: AppRoutine) -> Bool { routineOn[r.id] ?? ((r.isActive ?? 0) != 0) }
+
+    /// Turns a routine on/off; the server adds/removes its next week of workouts.
+    func setRoutine(_ r: AppRoutine, on: Bool) async {
+        busyRoutine = r.id
+        routineOn[r.id] = on
+        defer { busyRoutine = nil }
+        do {
+            let _: EmptyReply = try await link.api("/api/app/routines/\(r.id)", method: "PATCH",
+                                                   body: ["is_active": on ? 1 : 0])
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            await load()
+        } catch {
+            routineOn[r.id] = nil
             self.error = Self.message(error)
         }
     }
@@ -75,6 +121,8 @@ struct FitnessTab: View {
                         NavigationLink { BloodPressureScreen() } label: { BPBriefCard(bp: t.bp) }
                             .buttonStyle(.plain)
                         weekCard(t)
+                        if let mw = model.muscleWeek { musclesCard(mw) }
+                        if let rs = model.routines { routinesCard(rs) }
                         links
                     } else if model.loading {
                         ProgressView().padding(.top, 60)
@@ -264,6 +312,123 @@ struct FitnessTab: View {
                 .buttonStyle(.plain)
             }
         }
+    }
+
+    // MARK: Muscles & routines
+
+    private func musclesCard(_ mw: MuscleWeek) -> some View {
+        let gs: [MuscleWeekGroup] = mw.groups ?? []
+        let scale: Double = max(1, gs.map { ($0.done ?? 0) + ($0.planned ?? 0) }.max() ?? 1)
+        let notYet: [String] = gs.filter { ($0.done ?? 0) <= 0 }.map { groupLabel($0) }
+        let foot: String = gs.isEmpty ? "" :
+            (notYet.isEmpty ? "Every group worked this week." : "Not worked yet: \(notYet.joined(separator: ", ")).")
+        return Card(title: "Muscles this week", footnote: foot.isEmpty ? nil : foot) {
+            if let n = mw.workouts {
+                Text("\(n) workout\(n == 1 ? "" : "s") this week").font(.caption).foregroundStyle(.secondary)
+            }
+            if gs.isEmpty {
+                Text("Nothing logged or planned yet.").font(.subheadline).foregroundStyle(.secondary)
+            }
+            ForEach(gs) { g in muscleGroupRow(g, scale: scale) }
+        }
+    }
+
+    private func groupLabel(_ g: MuscleWeekGroup) -> String {
+        g.label ?? MuscleMap.groupLabel(g.key ?? "")
+    }
+
+    private func muscleGroupRow(_ g: MuscleWeekGroup, scale: Double) -> some View {
+        let color: Color = MuscleMap.color(g.key ?? "")
+        let done: Double = g.done ?? 0
+        let planned: Double = g.planned ?? 0
+        let worked: [String] = (g.muscles ?? [])
+            .filter { ($0.done ?? 0) + ($0.planned ?? 0) > 0 }
+            .map { $0.label ?? MuscleMap.label($0.key ?? "") }
+        return VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(groupLabel(g)).font(.subheadline.weight(.medium))
+                Spacer()
+                Text(Self.setsText(done, planned)).font(.caption).foregroundStyle(.secondary)
+            }
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.white.opacity(0.06))
+                    Capsule().fill(color.opacity(0.3))
+                        .frame(width: geo.size.width * min(1, (done + planned) / scale))
+                    Capsule().fill(color)
+                        .frame(width: geo.size.width * min(1, done / scale))
+                }
+            }
+            .frame(height: 8)
+            if !worked.isEmpty {
+                Text(worked.joined(separator: ", ")).font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    /// "6 sets +3 planned"
+    static func setsText(_ done: Double, _ planned: Double) -> String {
+        if done <= 0 && planned <= 0 { return "None" }
+        var s = "\(WorkoutScreen.num(done)) set\(done == 1 ? "" : "s")"
+        if planned > 0 { s += " +\(WorkoutScreen.num(planned)) planned" }
+        return s
+    }
+
+    private func routinesCard(_ rs: [AppRoutine]) -> some View {
+        Card(title: "Routines", footnote: "Create and edit routines on the website: Train → Routines.") {
+            if rs.isEmpty {
+                Text("No routines yet.").font(.subheadline).foregroundStyle(.secondary)
+            }
+            ForEach(rs) { r in routineRow(r) }
+        }
+    }
+
+    private func routineRow(_ r: AppRoutine) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(r.name ?? "Routine").font(.subheadline.weight(.semibold))
+                    if !Self.routineLine(r).isEmpty {
+                        Text(Self.routineLine(r)).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                if model.busyRoutine == r.id {
+                    ProgressView().frame(width: 51)
+                } else {
+                    Toggle("On", isOn: Binding(
+                        get: { model.isOn(r) },
+                        set: { on in Task { await model.setRoutine(r, on: on) } }))
+                        .labelsHidden()
+                        .tint(accent)
+                }
+            }
+            routineMuscles(r)
+        }
+        .padding(.vertical, 4)
+        .opacity(model.isOn(r) ? 1 : 0.6)
+    }
+
+    @ViewBuilder
+    private func routineMuscles(_ r: AppRoutine) -> some View {
+        if let m = r.muscles {
+            MusclePills(summary: m, groupsOnly: true)
+        } else {
+            MusclePills(primary: (r.exercises ?? []).flatMap { $0.primaryMuscles ?? [] },
+                        secondary: (r.exercises ?? []).flatMap { $0.secondaryMuscles ?? [] },
+                        groupsOnly: true)
+        }
+    }
+
+    /// "Mon · Wed · Fri · 7:00 AM · 45 min"
+    static func routineLine(_ r: AppRoutine) -> String {
+        let names: [String] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+        let days: [Int] = (r.days ?? []).filter { $0 >= 0 && $0 < 7 }.sorted { ($0 + 6) % 7 < ($1 + 6) % 7 }
+        var parts: [String] = days.map { names[$0] }
+        if let t = r.startTime, !t.isEmpty { parts.append(clock(t)) }
+        if let m = r.estDurationMin, m > 0 { parts.append("\(m) min") }
+        return parts.joined(separator: " · ")
     }
 
     private var links: some View {

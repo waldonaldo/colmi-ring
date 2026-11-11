@@ -129,17 +129,32 @@ struct WorkoutScreen: View {
     // MARK: Pieces
 
     private func header(_ s: WorkoutState) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: Self.symbol(for: s.name)).font(.title2).foregroundStyle(accent)
-                .frame(width: 44, height: 44)
-                .background(accent.opacity(0.15), in: Circle())
-            VStack(alignment: .leading, spacing: 3) {
-                Text(s.name).font(.headline)
-                Text(statusLine(s)).font(.caption).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Image(systemName: Self.symbol(for: s.name)).font(.title2).foregroundStyle(accent)
+                    .frame(width: 44, height: 44)
+                    .background(accent.opacity(0.15), in: Circle())
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(s.name).font(.headline)
+                    Text(statusLine(s)).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
             }
-            Spacer()
+            workoutMuscles(s)
         }
         .padding(.top, 6)
+    }
+
+    /// The whole workout's muscle groups (the server's summary, or worked out here).
+    @ViewBuilder
+    private func workoutMuscles(_ s: WorkoutState) -> some View {
+        if let m = s.muscles {
+            MusclePills(summary: m, groupsOnly: true)
+        } else {
+            MusclePills(primary: s.exercises.flatMap { $0.primaryMuscles ?? [] },
+                        secondary: s.exercises.flatMap { $0.secondaryMuscles ?? [] },
+                        groupsOnly: true)
+        }
     }
 
     private func statusLine(_ s: WorkoutState) -> String {
@@ -235,11 +250,13 @@ struct WorkoutScreen: View {
 
     private func exerciseCard(_ ex: WorkoutExercise, _ s: WorkoutState) -> some View {
         Card(title: ex.exerciseName) {
+            MusclePills(primary: ex.primaryMuscles ?? [], secondary: ex.secondaryMuscles ?? [])
             HStack {
                 Text(ex.targetText).font(.subheadline).foregroundStyle(.secondary)
                 Spacer()
                 if let w = ex.targetWeight { Text("\(Self.num(w)) lb").font(.caption).foregroundStyle(.secondary) }
             }
+            distanceGoal(ex, s)
             if let n = ex.notes, !n.isEmpty { Text(n).font(.caption).foregroundStyle(.secondary) }
             DisclosureGroup(isExpanded: Binding(
                 get: { howToOpen[ex.id] ?? (ex.id == currentExerciseID(s)) },
@@ -254,6 +271,44 @@ struct WorkoutScreen: View {
                 ForEach(1...ex.setCount, id: \.self) { n in setRow(ex, n, editable: s.status == "in_progress") }
             }
         }
+    }
+
+    /// Cardio distance goal: how long it takes at a couple of speeds, and the
+    /// miles in this exercise's set rows so far.
+    @ViewBuilder
+    private func distanceGoal(_ ex: WorkoutExercise, _ s: WorkoutState) -> some View {
+        if ex.isCardio, let goal = ex.targetDistanceMi, goal > 0 {
+            VStack(alignment: .leading, spacing: 4) {
+                Label(Self.goalText(goal, ex.defaultSpeed), systemImage: "flag.checkered")
+                    .font(.caption).foregroundStyle(.secondary)
+                if s.status != "scheduled" && s.status != "missed" {
+                    Text("\(SetEntry.miles(milesLogged(ex))) of \(SetEntry.miles(goal)) mi logged")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(milesLogged(ex) >= goal ? Palette.optimal : accent)
+                }
+            }
+        }
+    }
+
+    private func milesLogged(_ ex: WorkoutExercise) -> Double {
+        var total = 0.0
+        for n in 1...ex.setCount {
+            if let m = SetEntry.number(entries[SetEntry.key(ex.id, n)]?.miles ?? "") { total += m }
+        }
+        return total
+    }
+
+    /// "Goal 1.5 mi · about 30 min at 3.0 mph · 36 min at 2.5 mph"
+    static func goalText(_ miles: Double, _ speed: Double?) -> String {
+        let mph: Double = (speed ?? 0) > 0 ? (speed ?? 3.0) : 3.0
+        var parts: [String] = ["Goal \(SetEntry.miles(miles)) mi",
+                               "about \(goalMinutes(miles, mph)) min at \(String(format: "%.1f", mph)) mph"]
+        if abs(mph - 2.5) > 0.01 { parts.append("\(goalMinutes(miles, 2.5)) min at 2.5 mph") }
+        return parts.joined(separator: " · ")
+    }
+
+    private static func goalMinutes(_ miles: Double, _ mph: Double) -> Int {
+        Int((miles / mph * 60).rounded())
     }
 
     /// The exercise you're on: the first one with sets still to do (its how-to
@@ -646,18 +701,28 @@ enum WorkoutPrefs {
     /// On (default): the ring starts recording heart rate when you tap Start
     /// workout. Off: only when you tap Start ring heart rate.
     static let autoRecordKey = "workoutAutoRecordHR"
+    /// How fast exercise GIFs and start/end photos play (1 = as made).
+    static let gifSpeedKey = "exerciseGifSpeed"
 }
 
 struct WorkoutPrefsSection: View {
     @AppStorage(WorkoutPrefs.autoRecordKey) private var autoRecord = true
+    @AppStorage(WorkoutPrefs.gifSpeedKey) private var gifSpeed: Double = 1.0
 
     var body: some View {
         Section {
             Toggle("Ring heart rate starts with the workout", isOn: $autoRecord)
+            Picker("Exercise GIF speed", selection: $gifSpeed) {
+                Text("Normal").tag(1.0)
+                Text("¾").tag(0.75)
+                Text("Half").tag(0.5)
+                Text("⅓").tag(0.33)
+                Text("¼").tag(0.25)
+            }
         } header: {
             Text("Workouts")
         } footer: {
-            Text("On: the ring records heart rate as soon as you tap Start workout. Off: it waits until you tap Start ring heart rate at the top of the workout screen.")
+            Text("On: the ring records heart rate as soon as you tap Start workout. Off: it waits until you tap Start ring heart rate at the top of the workout screen. A slower GIF speed makes the how-to pictures easier to follow.")
         }
     }
 }

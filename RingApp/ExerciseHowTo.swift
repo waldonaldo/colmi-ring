@@ -134,15 +134,24 @@ struct AnimatedImageView: UIViewRepresentable {
 struct ExerciseHowTo: View {
     let ex: WorkoutExercise
 
-    @State private var gif: UIImage?
+    @State private var gif: UIImage?            // as shown, at the chosen speed
+    @State private var rawGif: UIImage?         // as cached
     @State private var frames: [UIImage] = []
     @State private var frame = 0
     @State private var paused = false
     @State private var loading = true
     @State private var videoURL: IdentifiedURL?
     @State private var page = 0          // 0 = GIF/photos, 1 = video
-    private let tick = Timer.publish(every: 0.9, on: .main, in: .common).autoconnect()
+    @AppStorage(WorkoutPrefs.gifSpeedKey) private var gifSpeed: Double = 1.0
     private static let frameLabels = ["Start", "End"]
+
+    private var speed: Double { max(0.1, gifSpeed) }
+
+    /// The same frames over a longer (or shorter) time; the cached image stays as is.
+    private static func atSpeed(_ img: UIImage, _ speed: Double) -> UIImage {
+        guard let frames = img.images, frames.count > 1, abs(speed - 1) > 0.01 else { return img }
+        return UIImage.animatedImage(with: frames, duration: img.duration / speed) ?? img
+    }
 
     private var steps: [String] { ex.exerciseInstructions ?? [] }
     private var tips: [String] { ex.tips ?? [] }
@@ -206,9 +215,16 @@ struct ExerciseHowTo: View {
         }
         .sheet(item: $videoURL) { v in SafariView(url: v.url).ignoresSafeArea() }
         .task(id: ex.id) { await load() }
-        .onReceive(tick) { _ in
-            guard frames.count > 1, !paused else { return }
-            frame = (frame + 1) % frames.count
+        // Start/end photo flip-book, slower when the GIF speed is turned down.
+        .task(id: gifSpeed) {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(0.9 / speed))
+                if Task.isCancelled { break }
+                if frames.count > 1 && !paused { frame = (frame + 1) % frames.count }
+            }
+        }
+        .onChange(of: gifSpeed) { _, _ in
+            if let r = rawGif { gif = Self.atSpeed(r, speed) }
         }
     }
 
@@ -226,7 +242,7 @@ struct ExerciseHowTo: View {
                             .opacity(i == frame ? 1 : 0)
                     }
                 }
-                .animation(.easeInOut(duration: 0.35), value: frame)
+                .animation(.easeInOut(duration: 0.35 / speed), value: frame)
             } else if loading {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -310,7 +326,8 @@ struct ExerciseHowTo: View {
         loading = true
         defer { loading = false }
         if let g = ex.gifPath {
-            gif = await ExerciseMediaCache.shared.image(g)
+            rawGif = await ExerciseMediaCache.shared.image(g)
+            gif = rawGif.map { Self.atSpeed($0, speed) }
             if gif != nil { return }
         }
         var got: [UIImage] = []
